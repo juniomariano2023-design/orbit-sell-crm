@@ -1,0 +1,2342 @@
+// ============================================
+// ORBIT SELL CRM - Complete SPA Application
+// ============================================
+
+// ---- DATA STORE ----
+const DB = {
+  get: (key, def = null) => {
+    try { const v = localStorage.getItem('orbitcrm_' + key); return v ? JSON.parse(v) : def; } catch { return def; }
+  },
+  set: (key, val) => {
+    try { localStorage.setItem('orbitcrm_' + key, JSON.stringify(val)); } catch(e) { console.error(e); }
+  }
+};
+
+// ---- INIT DEFAULT DATA ----
+function initDefaultData() {
+  if (!DB.get('initialized')) {
+    DB.set('users', [
+      { id: 'u1', name: 'Admin', email: 'admin@orbitsell.com', password: 'admin123', role: 'admin', avatar: 'A', color: '#6366f1', nicho: 'fotografia', createdAt: new Date().toISOString() },
+    ]);
+    DB.set('columns', [
+      { id: 'col1', name: 'Novo Lead', position: 0, color: 0, userId: 'u1' },
+      { id: 'col2', name: 'Contato Feito', position: 1, color: 1, userId: 'u1' },
+      { id: 'col3', name: 'Proposta Enviada', position: 2, color: 2, userId: 'u1' },
+      { id: 'col4', name: 'Negociação', position: 3, color: 3, userId: 'u1' },
+      { id: 'col5', name: 'Fechado', position: 4, color: 4, userId: 'u1' },
+    ]);
+    DB.set('cards', []);
+    DB.set('transactions', []);
+    DB.set('tasks', []);
+    DB.set('notifications', []);
+    DB.set('settings', {
+      businessName: 'Minha Empresa',
+      phone: '',
+      email: '',
+      address: '',
+      marketingPercent: 10,
+      proposalFooter: 'Obrigado pela preferência!',
+      nicho: 'fotografia'
+    });
+    DB.set('service_types', ['Fotografia de Casamento', 'Ensaio Externo', 'Fotografia Social', 'Vídeo Institucional', 'Pacote Completo']);
+    DB.set('guest_label', 'Quantidade de Convidados');
+    DB.set('service_label', 'Tipo de Serviço');
+    DB.set('nichos', ['fotografia', 'advocacia', 'personal trainer', 'clínica', 'imobiliária', 'loja de móveis', 'marcenaria']);
+    DB.set('initialized', true);
+  }
+}
+
+// ---- STATE ----
+let state = {
+  currentUser: null,
+  page: 'crm',
+  notifications: [],
+  toasts: []
+};
+
+// ---- TOAST ----
+function showToast(msg, type = 'success') {
+  const id = Date.now();
+  const container = document.getElementById('toast-container') || createToastContainer();
+  const el = document.createElement('div');
+  el.className = `toast-item ${type}`;
+  const icons = { success: 'fa-check-circle', error: 'fa-times-circle', warning: 'fa-exclamation-triangle', info: 'fa-info-circle' };
+  const colors = { success: '#10b981', error: '#ef4444', warning: '#f59e0b', info: '#6366f1' };
+  el.innerHTML = `<i class="fas ${icons[type]||icons.info}" style="color:${colors[type]||colors.info};font-size:18px;flex-shrink:0"></i><span style="font-size:14px;color:#e2e8f0;">${msg}</span>`;
+  container.appendChild(el);
+  setTimeout(() => { el.style.opacity='0'; el.style.transform='translateX(100%)'; el.style.transition='all 0.3s'; setTimeout(() => el.remove(), 300); }, 3000);
+}
+function createToastContainer() {
+  const el = document.createElement('div');
+  el.id = 'toast-container';
+  el.className = 'toast';
+  document.body.appendChild(el);
+  return el;
+}
+
+// ---- AUTH ----
+function getAuth() { return DB.get('auth'); }
+function setAuth(user) { DB.set('auth', user); state.currentUser = user; }
+function logout() { DB.set('auth', null); state.currentUser = null; render(); }
+
+function renderLogin() {
+  return `
+<div class="login-page fade-in">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="logo-icon"><i class="fas fa-orbit" style="font-size:28px;color:white">⊙</i></div>
+      <h1>Orbit Sell CRM</h1>
+      <p>Gerencie seus clientes com eficiência</p>
+    </div>
+    <div id="login-tabs" style="display:flex;gap:8px;margin-bottom:24px;border-bottom:1px solid #1e293b;padding-bottom:0">
+      <div class="tab active" id="tab-login" onclick="switchLoginTab('login')">Entrar</div>
+      <div class="tab" id="tab-register" onclick="switchLoginTab('register')">Criar Conta</div>
+    </div>
+    <div id="login-form">
+      <div class="form-group" style="margin-bottom:16px">
+        <label class="form-label">E-mail</label>
+        <input id="login-email" class="form-input" type="email" placeholder="seu@email.com" value="admin@orbitsell.com" />
+      </div>
+      <div class="form-group" style="margin-bottom:24px">
+        <label class="form-label">Senha</label>
+        <div style="position:relative">
+          <input id="login-pass" class="form-input" type="password" placeholder="••••••••" value="admin123" style="padding-right:40px" />
+          <button onclick="togglePass('login-pass')" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);background:none;border:none;color:#64748b;cursor:pointer"><i class="fas fa-eye" id="eye-login-pass"></i></button>
+        </div>
+      </div>
+      <button class="btn btn-primary" style="width:100%;justify-content:center;padding:12px" onclick="doLogin()">
+        <i class="fas fa-sign-in-alt"></i> Entrar
+      </button>
+    </div>
+    <div id="register-form" style="display:none">
+      <div class="form-group" style="margin-bottom:12px">
+        <label class="form-label">Nome Completo</label>
+        <input id="reg-name" class="form-input" type="text" placeholder="Seu nome" />
+      </div>
+      <div class="form-group" style="margin-bottom:12px">
+        <label class="form-label">E-mail</label>
+        <input id="reg-email" class="form-input" type="email" placeholder="seu@email.com" />
+      </div>
+      <div class="form-group" style="margin-bottom:12px">
+        <label class="form-label">Senha</label>
+        <input id="reg-pass" class="form-input" type="password" placeholder="Mínimo 6 caracteres" />
+      </div>
+      <div class="form-group" style="margin-bottom:24px">
+        <label class="form-label">Nicho de Atuação</label>
+        <select id="reg-nicho" class="form-select">
+          ${(DB.get('nichos') || []).map(n => `<option value="${n}">${capitalize(n)}</option>`).join('')}
+        </select>
+      </div>
+      <button class="btn btn-primary" style="width:100%;justify-content:center;padding:12px" onclick="doRegister()">
+        <i class="fas fa-user-plus"></i> Criar Conta
+      </button>
+    </div>
+    <p style="text-align:center;font-size:12px;color:#475569;margin-top:24px">Demo: admin@orbitsell.com / admin123</p>
+  </div>
+</div>`;
+}
+
+function switchLoginTab(tab) {
+  document.getElementById('tab-login').classList.toggle('active', tab==='login');
+  document.getElementById('tab-register').classList.toggle('active', tab==='register');
+  document.getElementById('login-form').style.display = tab==='login' ? 'block' : 'none';
+  document.getElementById('register-form').style.display = tab==='register' ? 'block' : 'none';
+}
+
+function togglePass(id) {
+  const el = document.getElementById(id);
+  const eye = document.getElementById('eye-' + id);
+  if (el.type === 'password') { el.type = 'text'; eye.className = 'fas fa-eye-slash'; }
+  else { el.type = 'password'; eye.className = 'fas fa-eye'; }
+}
+
+function doLogin() {
+  const email = document.getElementById('login-email').value.trim();
+  const pass = document.getElementById('login-pass').value;
+  const users = DB.get('users') || [];
+  const user = users.find(u => u.email === email && u.password === pass);
+  if (!user) { showToast('E-mail ou senha inválidos', 'error'); return; }
+  setAuth(user);
+  showToast(`Bem-vindo, ${user.name}!`, 'success');
+  render();
+}
+
+function doRegister() {
+  const name = document.getElementById('reg-name').value.trim();
+  const email = document.getElementById('reg-email').value.trim();
+  const pass = document.getElementById('reg-pass').value;
+  const nicho = document.getElementById('reg-nicho').value;
+  if (!name || !email || !pass) { showToast('Preencha todos os campos', 'error'); return; }
+  if (pass.length < 6) { showToast('Senha deve ter pelo menos 6 caracteres', 'error'); return; }
+  const users = DB.get('users') || [];
+  if (users.find(u => u.email === email)) { showToast('E-mail já cadastrado', 'error'); return; }
+  const initials = name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0,2);
+  const colors = ['#6366f1','#8b5cf6','#ec4899','#f59e0b','#10b981','#3b82f6'];
+  const newUser = { id: 'u' + Date.now(), name, email, password: pass, role: 'user', avatar: initials, color: colors[Math.floor(Math.random()*colors.length)], nicho, createdAt: new Date().toISOString() };
+  users.push(newUser);
+  DB.set('users', users);
+  // Create default columns for new user
+  const cols = DB.get('columns') || [];
+  const defaults = ['Novo Lead','Contato Feito','Proposta Enviada','Negociação','Fechado'];
+  defaults.forEach((name, i) => cols.push({ id: 'col_'+Date.now()+'_'+i, name, position: i, color: i, userId: newUser.id }));
+  DB.set('columns', cols);
+  setAuth(newUser);
+  showToast('Conta criada com sucesso!', 'success');
+  render();
+}
+
+// ---- MAIN LAYOUT ----
+function renderApp() {
+  const u = state.currentUser;
+  const notifs = (DB.get('notifications') || []).filter(n => n.userId === u.id && !n.read);
+  const pages = [
+    { id: 'dashboard', icon: 'fa-chart-pie', label: 'Dashboard' },
+    { id: 'crm', icon: 'fa-kanban', label: 'CRM Kanban' },
+    { id: 'clientes', icon: 'fa-users', label: 'Clientes' },
+    { id: 'financeiro', icon: 'fa-wallet', label: 'Financeiro' },
+    { id: 'calendario', icon: 'fa-calendar-alt', label: 'Calendário' },
+    { id: 'notificacoes', icon: 'fa-bell', label: 'Notificações', badge: notifs.length },
+    { id: 'configuracoes', icon: 'fa-cog', label: 'Configurações' },
+  ];
+  return `
+<div style="display:flex;height:100vh;overflow:hidden">
+  <!-- Sidebar -->
+  <div class="sidebar" id="sidebar">
+    <div style="padding:16px;border-bottom:1px solid #1e293b;display:flex;align-items:center;gap:12px">
+      <div style="width:40px;height:40px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0">⊙</div>
+      <div id="sidebar-brand">
+        <div style="font-weight:800;font-size:14px;color:#f1f5f9">Orbit Sell</div>
+        <div style="font-size:11px;color:#64748b">CRM</div>
+      </div>
+    </div>
+    <div style="padding:12px 8px;flex:1;overflow-y:auto">
+      ${pages.map(p => `
+        <div class="sidebar-link ${state.page === p.id ? 'active' : ''}" onclick="navigate('${p.id}')">
+          <i class="fas ${p.icon}" style="min-width:20px;text-align:center"></i>
+          <span id="sl-${p.id}" style="flex:1">${p.label}</span>
+          ${p.badge ? `<span class="notif-badge">${p.badge}</span>` : ''}
+        </div>
+      `).join('')}
+    </div>
+    <div style="padding:12px 8px;border-top:1px solid #1e293b">
+      <div style="display:flex;align-items:center;gap:10px;padding:8px;border-radius:8px;background:#1e293b;margin-bottom:8px">
+        <div class="avatar avatar-sm" style="background:${u.color};color:white;flex-shrink:0">${u.avatar}</div>
+        <div id="user-info" style="overflow:hidden">
+          <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#e2e8f0">${u.name}</div>
+          <div style="font-size:11px;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${capitalize(u.nicho||'')}</div>
+        </div>
+      </div>
+      <button class="btn btn-ghost btn-sm" style="width:100%;justify-content:center" onclick="logout()">
+        <i class="fas fa-sign-out-alt"></i> <span id="logout-label">Sair</span>
+      </button>
+    </div>
+  </div>
+  <!-- Main content -->
+  <div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+    <!-- Header -->
+    <div style="background:#0f172a;border-bottom:1px solid #1e293b;padding:12px 24px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+      <div style="display:flex;align-items:center;gap:12px">
+        <button class="btn btn-ghost btn-icon" onclick="toggleSidebar()" title="Menu"><i class="fas fa-bars"></i></button>
+        <h2 id="page-title" style="font-size:18px;font-weight:700;color:#f1f5f9">${getPageTitle()}</h2>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <button class="btn btn-ghost btn-icon" onclick="navigate('notificacoes')" title="Notificações" style="position:relative">
+          <i class="fas fa-bell"></i>
+          ${notifs.length > 0 ? `<span style="position:absolute;top:4px;right:4px;width:8px;height:8px;background:#ef4444;border-radius:50%;border:2px solid #0f172a"></span>` : ''}
+        </button>
+        <div class="avatar avatar-sm" style="background:${u.color};color:white;cursor:pointer" onclick="navigate('configuracoes')">${u.avatar}</div>
+      </div>
+    </div>
+    <!-- Page content -->
+    <div id="page-content" style="flex:1;overflow-y:auto;padding:24px">
+      ${renderPage()}
+    </div>
+  </div>
+</div>`;
+}
+
+function toggleSidebar() {
+  const s = document.getElementById('sidebar');
+  s.classList.toggle('collapsed');
+  const brand = document.getElementById('sidebar-brand');
+  const userInfo = document.getElementById('user-info');
+  const logoutLabel = document.getElementById('logout-label');
+  const isCollapsed = s.classList.contains('collapsed');
+  if (brand) brand.style.display = isCollapsed ? 'none' : 'block';
+  if (userInfo) userInfo.style.display = isCollapsed ? 'none' : 'block';
+  if (logoutLabel) logoutLabel.style.display = isCollapsed ? 'none' : 'inline';
+}
+
+function getPageTitle() {
+  const titles = { dashboard: 'Dashboard', crm: 'CRM Kanban', clientes: 'Clientes', financeiro: 'Financeiro', calendario: 'Calendário', notificacoes: 'Notificações', configuracoes: 'Configurações' };
+  return titles[state.page] || 'Orbit Sell CRM';
+}
+
+function navigate(page) {
+  state.page = page;
+  const content = document.getElementById('page-content');
+  const title = document.getElementById('page-title');
+  if (content) { content.innerHTML = renderPage(); content.scrollTop = 0; }
+  if (title) title.textContent = getPageTitle();
+  // Update sidebar links
+  document.querySelectorAll('.sidebar-link').forEach(el => el.classList.remove('active'));
+  const active = document.querySelector(`.sidebar-link[onclick="navigate('${page}')"]`);
+  if (active) active.classList.add('active');
+}
+
+function renderPage() {
+  switch(state.page) {
+    case 'dashboard': return renderDashboard();
+    case 'crm': return renderCRM();
+    case 'clientes': return renderClientes();
+    case 'financeiro': return renderFinanceiro();
+    case 'calendario': return renderCalendario();
+    case 'notificacoes': return renderNotificacoes();
+    case 'configuracoes': return renderConfiguracoes();
+    default: return renderCRM();
+  }
+}
+
+// ---- HELPERS ----
+function uid() { return 'id_' + Date.now() + '_' + Math.random().toString(36).substr(2,9); }
+function capitalize(s) { if(!s) return ''; return s.charAt(0).toUpperCase() + s.slice(1); }
+function formatCurrency(val) { return 'R$ ' + Number(val||0).toLocaleString('pt-BR', {minimumFractionDigits:2,maximumFractionDigits:2}); }
+function formatDate(d) { if(!d) return '-'; const dt = new Date(d); return dt.toLocaleDateString('pt-BR'); }
+function formatDateInput(d) { if(!d) return ''; return new Date(d).toISOString().split('T')[0]; }
+function getUserCards() { return (DB.get('cards') || []).filter(c => c.userId === state.currentUser.id); }
+function getUserColumns() { return (DB.get('columns') || []).filter(c => c.userId === state.currentUser.id).sort((a,b) => a.position - b.position); }
+function getUserTransactions() { return (DB.get('transactions') || []).filter(t => t.userId === state.currentUser.id); }
+function getUserTasks() { return (DB.get('tasks') || []).filter(t => t.userId === state.currentUser.id); }
+function saveCards(cards) { const all = (DB.get('cards')||[]).filter(c => c.userId !== state.currentUser.id); DB.set('cards', [...all, ...cards]); }
+function saveColumns(cols) { const all = (DB.get('columns')||[]).filter(c => c.userId !== state.currentUser.id); DB.set('columns', [...all, ...cols]); }
+function saveTransactions(txns) { const all = (DB.get('transactions')||[]).filter(t => t.userId !== state.currentUser.id); DB.set('transactions', [...all, ...txns]); }
+function saveTasks(tasks) { const all = (DB.get('tasks')||[]).filter(t => t.userId !== state.currentUser.id); DB.set('tasks', [...all, ...tasks]); }
+function getColorClass(i) { return 'col-color-' + ((i % 8) + 1); }
+function addNotification(msg, type = 'info') {
+  const notifs = DB.get('notifications') || [];
+  notifs.unshift({ id: uid(), userId: state.currentUser.id, message: msg, type, read: false, createdAt: new Date().toISOString() });
+  DB.set('notifications', notifs);
+}
+
+
+// ============================================
+// DASHBOARD PAGE
+// ============================================
+function renderDashboard() {
+  const cards = getUserCards();
+  const txns = getUserTransactions();
+  const cols = getUserColumns();
+  const tasks = getUserTasks();
+  
+  const totalCards = cards.length;
+  const totalReceita = txns.filter(t => t.type === 'receita').reduce((s,t) => s + Number(t.amount||0), 0);
+  const totalDespesa = txns.filter(t => t.type === 'despesa').reduce((s,t) => s + Number(t.amount||0), 0);
+  const totalPendente = cards.reduce((s,c) => s + (Number(c.totalValue||0) - Number(c.paidValue||0)), 0);
+  const tasksPendentes = tasks.filter(t => !t.done).length;
+  
+  const hoje = new Date();
+  const proximosEventos = cards.filter(c => c.eventDate && new Date(c.eventDate) >= hoje).sort((a,b) => new Date(a.eventDate) - new Date(b.eventDate)).slice(0,5);
+  
+  // Funil de conversão
+  const funnelData = cols.map(col => ({
+    name: col.name,
+    count: cards.filter(c => c.columnId === col.id).length,
+    color: col.color
+  }));
+  const maxFunnel = Math.max(...funnelData.map(f => f.count), 1);
+  
+  // Últimas transações
+  const lastTxns = [...txns].sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0,5);
+  
+  return `
+<div class="fade-in">
+  <!-- KPIs -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px">
+    <div class="kpi-card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div style="width:44px;height:44px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:12px;display:flex;align-items:center;justify-content:center">
+          <i class="fas fa-users" style="color:white;font-size:18px"></i>
+        </div>
+        <span class="badge badge-primary">Total</span>
+      </div>
+      <div style="font-size:28px;font-weight:800;color:#f1f5f9">${totalCards}</div>
+      <div style="font-size:13px;color:#64748b;margin-top:4px">Clientes no CRM</div>
+    </div>
+    <div class="kpi-card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div style="width:44px;height:44px;background:linear-gradient(135deg,#059669,#047857);border-radius:12px;display:flex;align-items:center;justify-content:center">
+          <i class="fas fa-arrow-up" style="color:white;font-size:18px"></i>
+        </div>
+        <span class="badge badge-success">Receita</span>
+      </div>
+      <div style="font-size:28px;font-weight:800;color:#34d399">${formatCurrency(totalReceita)}</div>
+      <div style="font-size:13px;color:#64748b;margin-top:4px">Total Recebido</div>
+    </div>
+    <div class="kpi-card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div style="width:44px;height:44px;background:linear-gradient(135deg,#dc2626,#b91c1c);border-radius:12px;display:flex;align-items:center;justify-content:center">
+          <i class="fas fa-arrow-down" style="color:white;font-size:18px"></i>
+        </div>
+        <span class="badge badge-danger">Despesa</span>
+      </div>
+      <div style="font-size:28px;font-weight:800;color:#f87171">${formatCurrency(totalDespesa)}</div>
+      <div style="font-size:13px;color:#64748b;margin-top:4px">Total Despesas</div>
+    </div>
+    <div class="kpi-card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div style="width:44px;height:44px;background:linear-gradient(135deg,#d97706,#b45309);border-radius:12px;display:flex;align-items:center;justify-content:center">
+          <i class="fas fa-clock" style="color:white;font-size:18px"></i>
+        </div>
+        <span class="badge badge-warning">Pendente</span>
+      </div>
+      <div style="font-size:28px;font-weight:800;color:#fbbf24">${formatCurrency(totalPendente)}</div>
+      <div style="font-size:13px;color:#64748b;margin-top:4px">A Receber</div>
+    </div>
+    <div class="kpi-card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div style="width:44px;height:44px;background:linear-gradient(135deg,#0891b2,#0e7490);border-radius:12px;display:flex;align-items:center;justify-content:center">
+          <i class="fas fa-tasks" style="color:white;font-size:18px"></i>
+        </div>
+        <span class="badge" style="background:rgba(8,145,178,0.2);color:#22d3ee">Tarefas</span>
+      </div>
+      <div style="font-size:28px;font-weight:800;color:#22d3ee">${tasksPendentes}</div>
+      <div style="font-size:13px;color:#64748b;margin-top:4px">Tarefas Pendentes</div>
+    </div>
+    <div class="kpi-card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div style="width:44px;height:44px;background:linear-gradient(135deg,#7c3aed,#6d28d9);border-radius:12px;display:flex;align-items:center;justify-content:center">
+          <i class="fas fa-chart-line" style="color:white;font-size:18px"></i>
+        </div>
+        <span class="badge" style="background:rgba(124,58,237,0.2);color:#a78bfa">Saldo</span>
+      </div>
+      <div style="font-size:28px;font-weight:800;color:${totalReceita - totalDespesa >= 0 ? '#34d399' : '#f87171'}">${formatCurrency(totalReceita - totalDespesa)}</div>
+      <div style="font-size:13px;color:#64748b;margin-top:4px">Saldo Líquido</div>
+    </div>
+  </div>
+
+  <!-- Funil + Próximos Eventos -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px">
+    <div class="card-elevated">
+      <div style="font-size:16px;font-weight:700;margin-bottom:16px;color:#f1f5f9">
+        <i class="fas fa-filter" style="color:#6366f1;margin-right:8px"></i>Funil de Vendas
+      </div>
+      ${funnelData.length === 0 ? '<p style="color:#475569;font-size:13px">Nenhuma coluna criada</p>' : 
+        funnelData.map((f, i) => `
+        <div style="margin-bottom:12px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+            <span style="font-size:13px;color:#94a3b8">${f.name}</span>
+            <span style="font-size:13px;font-weight:600;color:#f1f5f9">${f.count}</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-bar-fill" style="width:${maxFunnel > 0 ? (f.count/maxFunnel*100) : 0}%;background:${['#6366f1','#0891b2','#d97706','#059669','#dc2626','#7c3aed','#db2777','#0d9488'][i%8]}"></div>
+          </div>
+        </div>
+        `).join('')
+      }
+    </div>
+    <div class="card-elevated">
+      <div style="font-size:16px;font-weight:700;margin-bottom:16px;color:#f1f5f9">
+        <i class="fas fa-calendar-check" style="color:#059669;margin-right:8px"></i>Próximos Eventos
+      </div>
+      ${proximosEventos.length === 0 ? '<p style="color:#475569;font-size:13px">Nenhum evento agendado</p>' :
+        proximosEventos.map(c => `
+        <div style="display:flex;align-items:center;gap:12px;padding:10px;background:#1e293b;border-radius:8px;margin-bottom:8px;cursor:pointer" onclick="openCardModal('${c.id}')">
+          <div style="width:40px;height:40px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+            <i class="fas fa-calendar" style="color:white;font-size:14px"></i>
+          </div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:600;color:#e2e8f0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.name}</div>
+            <div style="font-size:12px;color:#64748b">${formatDate(c.eventDate)} • ${c.serviceType || 'Serviço'}</div>
+          </div>
+          <div style="font-size:12px;font-weight:600;color:#34d399">${formatCurrency(c.totalValue)}</div>
+        </div>
+        `).join('')
+      }
+    </div>
+  </div>
+
+  <!-- Últimas Transações -->
+  <div class="card-elevated">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <div style="font-size:16px;font-weight:700;color:#f1f5f9">
+        <i class="fas fa-exchange-alt" style="color:#d97706;margin-right:8px"></i>Últimas Transações
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="navigate('financeiro')">Ver todas <i class="fas fa-arrow-right"></i></button>
+    </div>
+    ${lastTxns.length === 0 ? '<p style="color:#475569;font-size:13px">Nenhuma transação registrada</p>' : `
+    <div class="table-container">
+      <table>
+        <thead><tr><th>Data</th><th>Descrição</th><th>Cliente</th><th>Tipo</th><th>Valor</th></tr></thead>
+        <tbody>
+          ${lastTxns.map(t => `
+          <tr>
+            <td>${formatDate(t.date||t.createdAt)}</td>
+            <td>${t.description || '-'}</td>
+            <td>${t.clientName || '-'}</td>
+            <td><span class="badge ${t.type==='receita'?'badge-success':'badge-danger'}">${t.type==='receita'?'Receita':'Despesa'}</span></td>
+            <td style="color:${t.type==='receita'?'#34d399':'#f87171'};font-weight:600">${t.type==='receita'?'+':'-'}${formatCurrency(t.amount)}</td>
+          </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>`}
+  </div>
+</div>`;
+}
+
+
+// ============================================
+// CRM KANBAN PAGE
+// ============================================
+let dragCard = null, dragCol = null, dragColEl = null;
+
+function renderCRM() {
+  const cols = getUserColumns();
+  const cards = getUserCards();
+  const guestLabel = DB.get('guest_label') || 'Quantidade de Convidados';
+  
+  return `
+<div class="fade-in">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+    <div>
+      <h2 style="font-size:20px;font-weight:700;color:#f1f5f9">CRM Kanban</h2>
+      <p style="font-size:13px;color:#64748b;margin-top:2px">${cards.length} clientes em ${cols.length} colunas</p>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-secondary btn-sm" onclick="openColumnModal()">
+        <i class="fas fa-plus"></i> Nova Coluna
+      </button>
+      <button class="btn btn-primary btn-sm" onclick="openCardModal()">
+        <i class="fas fa-user-plus"></i> Novo Cliente
+      </button>
+    </div>
+  </div>
+
+  <!-- Search bar -->
+  <div style="margin-bottom:16px;display:flex;gap:8px">
+    <div style="position:relative;flex:1;max-width:400px">
+      <i class="fas fa-search" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#475569;font-size:14px"></i>
+      <input id="crm-search" class="form-input" placeholder="Buscar cliente..." style="padding-left:36px" oninput="filterCRM()" />
+    </div>
+    <select id="crm-filter-col" class="form-select" style="width:auto" onchange="filterCRM()">
+      <option value="">Todas as colunas</option>
+      ${cols.map(c => `<option value="${c.id}">${c.name}</option>`).join('')}
+    </select>
+  </div>
+
+  <!-- Kanban board -->
+  <div class="kanban-scroll" id="kanban-board">
+    ${cols.map(col => renderColumn(col, cards)).join('')}
+    ${cols.length === 0 ? `
+    <div style="text-align:center;padding:60px 40px;color:#475569;width:100%">
+      <i class="fas fa-columns" style="font-size:48px;margin-bottom:16px;opacity:0.3"></i>
+      <h3 style="font-size:18px;margin-bottom:8px">Nenhuma coluna criada</h3>
+      <p style="font-size:14px;margin-bottom:20px">Crie colunas para organizar seus clientes no funil de vendas</p>
+      <button class="btn btn-primary" onclick="openColumnModal()"><i class="fas fa-plus"></i> Criar primeira coluna</button>
+    </div>` : ''}
+  </div>
+</div>`;
+}
+
+function renderColumn(col, allCards) {
+  const cards = allCards.filter(c => c.columnId === col.id);
+  const colorIdx = (col.color % 8) + 1;
+  return `
+<div class="kanban-column" id="col-${col.id}" 
+     ondragover="onColDragOver(event,'${col.id}')" 
+     ondragleave="onColDragLeave(event,'${col.id}')"
+     ondrop="onColDrop(event,'${col.id}')">
+  <div class="kanban-column-header" draggable="true" 
+       ondragstart="onHeaderDragStart(event,'${col.id}')"
+       ondragend="onHeaderDragEnd(event)">
+    <div style="display:flex;align-items:center;gap:8px">
+      <div style="width:12px;height:12px;border-radius:50%;background:${['#6366f1','#0891b2','#d97706','#059669','#dc2626','#7c3aed','#db2777','#0d9488'][col.color%8]}"></div>
+      <span style="font-size:14px;font-weight:600;color:#f1f5f9">${col.name}</span>
+      <span style="background:#1e293b;color:#64748b;font-size:11px;padding:2px 7px;border-radius:20px;font-weight:600">${cards.length}</span>
+    </div>
+    <div style="display:flex;gap:4px">
+      <button class="btn btn-ghost btn-icon" style="padding:4px" onclick="moveColumnLeft('${col.id}')" title="Mover para esquerda"><i class="fas fa-chevron-left" style="font-size:11px"></i></button>
+      <button class="btn btn-ghost btn-icon" style="padding:4px" onclick="moveColumnRight('${col.id}')" title="Mover para direita"><i class="fas fa-chevron-right" style="font-size:11px"></i></button>
+      <button class="btn btn-ghost btn-icon" style="padding:4px" onclick="editColumn('${col.id}')" title="Editar"><i class="fas fa-pen" style="font-size:11px"></i></button>
+      <button class="btn btn-ghost btn-icon" style="padding:4px;color:#ef4444" onclick="deleteColumn('${col.id}')" title="Excluir"><i class="fas fa-trash" style="font-size:11px"></i></button>
+    </div>
+  </div>
+  <div class="kanban-cards" id="cards-${col.id}">
+    ${cards.length > 0 ? cards.sort((a,b) => (a.position||0)-(b.position||0)).map(card => renderKanbanCard(card)).join('') : `
+    <div class="drop-zone" id="dropzone-${col.id}" ondragover="onCardDragOver(event,'${col.id}')" ondrop="onCardDrop(event,'${col.id}')">
+      <i class="fas fa-arrow-down" style="margin-right:6px"></i>Soltar aqui
+    </div>`}
+  </div>
+  <div style="padding:8px">
+    <button class="btn btn-ghost btn-sm" style="width:100%;justify-content:center;color:#475569;border:1px dashed #334155" onclick="openCardModal(null,'${col.id}')">
+      <i class="fas fa-plus" style="font-size:11px"></i> Adicionar
+    </button>
+  </div>
+</div>`;
+}
+
+function renderKanbanCard(card) {
+  const paid = Number(card.paidValue||0);
+  const total = Number(card.totalValue||0);
+  const pct = total > 0 ? Math.round(paid/total*100) : 0;
+  const isPaid = paid >= total && total > 0;
+  return `
+<div class="kanban-card" id="card-${card.id}" draggable="true"
+     ondragstart="onCardDragStart(event,'${card.id}','${card.columnId}')"
+     ondragend="onCardDragEnd(event)"
+     ondragover="onCardItemDragOver(event,'${card.id}')"
+     ondrop="onCardItemDrop(event,'${card.id}','${card.columnId}')">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+    <div style="flex:1;min-width:0">
+      <div style="font-size:14px;font-weight:600;color:#f1f5f9;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" onclick="openCardModal('${card.id}')">${card.name}</div>
+      ${card.serviceType ? `<div style="font-size:12px;color:#64748b;margin-top:2px">${card.serviceType}</div>` : ''}
+    </div>
+    <div style="display:flex;gap:4px;flex-shrink:0">
+      <button class="btn btn-ghost btn-icon" style="padding:3px;color:#6366f1" onclick="moveCardForward('${card.id}')" title="Próxima coluna"><i class="fas fa-arrow-right" style="font-size:10px"></i></button>
+      <button class="btn btn-ghost btn-icon" style="padding:3px;color:#ef4444" onclick="deleteCard('${card.id}')" title="Excluir card"><i class="fas fa-trash" style="font-size:10px"></i></button>
+    </div>
+  </div>
+  ${card.eventDate ? `<div style="font-size:11px;color:#94a3b8;margin-bottom:6px"><i class="fas fa-calendar" style="margin-right:4px;color:#6366f1"></i>${formatDate(card.eventDate)}</div>` : ''}
+  ${total > 0 ? `
+  <div style="margin-bottom:4px">
+    <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px">
+      <span style="color:#64748b">Pagamento</span>
+      <span style="color:${isPaid?'#34d399':'#fbbf24'};font-weight:600">${pct}%</span>
+    </div>
+    <div class="progress-bar" style="height:4px">
+      <div class="progress-bar-fill" style="width:${pct}%;background:${isPaid?'#10b981':'#6366f1'}"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:11px;margin-top:3px">
+      <span style="color:#64748b">Total: ${formatCurrency(total)}</span>
+      <span style="color:${isPaid?'#34d399':'#fbbf24'}">${isPaid?'<i class="fas fa-check"></i> Pago':'Restante: '+formatCurrency(total-paid)}</span>
+    </div>
+  </div>` : ''}
+  ${card.tags && card.tags.length > 0 ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">${card.tags.map(t=>`<span style="background:#1e293b;color:#94a3b8;font-size:10px;padding:2px 6px;border-radius:10px">${t}</span>`).join('')}</div>` : ''}
+</div>`;
+}
+
+// ---- DRAG AND DROP ----
+let dragCardId = null, dragCardColId = null;
+let dragHeaderColId = null;
+
+function onCardDragStart(e, cardId, colId) {
+  dragCardId = cardId; dragCardColId = colId;
+  e.dataTransfer.effectAllowed = 'move';
+  setTimeout(() => { const el = document.getElementById('card-'+cardId); if(el) el.classList.add('dragging'); }, 0);
+}
+function onCardDragEnd(e) {
+  if(dragCardId) { const el = document.getElementById('card-'+dragCardId); if(el) el.classList.remove('dragging'); }
+  dragCardId = null; dragCardColId = null;
+  document.querySelectorAll('.column-drag-over').forEach(el => el.classList.remove('column-drag-over'));
+}
+function onCardDragOver(e, colId) {
+  if(!dragCardId) return;
+  e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+  document.querySelectorAll('.kanban-column').forEach(el => el.classList.remove('column-drag-over'));
+  const col = document.getElementById('col-'+colId);
+  if(col) col.classList.add('column-drag-over');
+  const dz = document.getElementById('dropzone-'+colId);
+  if(dz) dz.classList.add('active');
+}
+function onColDragLeave(e, colId) {
+  const col = document.getElementById('col-'+colId);
+  if(col && !col.contains(e.relatedTarget)) { col.classList.remove('column-drag-over'); }
+  const dz = document.getElementById('dropzone-'+colId);
+  if(dz) dz.classList.remove('active');
+}
+function onColDragOver(e, colId) {
+  if(!dragCardId && !dragHeaderColId) return;
+  e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+}
+function onColDrop(e, targetColId) {
+  e.preventDefault();
+  if(dragCardId) {
+    const cards = getUserCards();
+    const card = cards.find(c => c.id === dragCardId);
+    if(card) {
+      card.columnId = targetColId;
+      card.position = cards.filter(c => c.columnId === targetColId).length;
+      saveCards(cards);
+      addNotification(`Cliente "${card.name}" movido para nova coluna`, 'info');
+    }
+    refreshCRM();
+  }
+}
+function onCardItemDragOver(e, cardId) {
+  if(!dragCardId || dragCardId === cardId) return;
+  e.preventDefault();
+}
+function onCardItemDrop(e, targetCardId, colId) {
+  e.preventDefault();
+  if(!dragCardId || dragCardId === targetCardId) return;
+  const cards = getUserCards();
+  const draggedCard = cards.find(c => c.id === dragCardId);
+  const targetCard = cards.find(c => c.id === targetCardId);
+  if(!draggedCard || !targetCard) return;
+  draggedCard.columnId = colId;
+  const targetPos = targetCard.position || 0;
+  draggedCard.position = targetPos;
+  cards.filter(c => c.columnId === colId && c.id !== dragCardId && (c.position||0) >= targetPos).forEach(c => c.position = (c.position||0)+1);
+  saveCards(cards);
+  refreshCRM();
+}
+
+// Column drag
+function onHeaderDragStart(e, colId) {
+  dragHeaderColId = colId;
+  e.dataTransfer.effectAllowed = 'move';
+}
+function onHeaderDragEnd(e) { dragHeaderColId = null; }
+
+function moveColumnLeft(colId) {
+  const cols = getUserColumns();
+  const idx = cols.findIndex(c => c.id === colId);
+  if(idx <= 0) return;
+  [cols[idx].position, cols[idx-1].position] = [cols[idx-1].position, cols[idx].position];
+  saveColumns(cols);
+  refreshCRM();
+}
+function moveColumnRight(colId) {
+  const cols = getUserColumns();
+  const idx = cols.findIndex(c => c.id === colId);
+  if(idx >= cols.length-1) return;
+  [cols[idx].position, cols[idx+1].position] = [cols[idx+1].position, cols[idx].position];
+  saveColumns(cols);
+  refreshCRM();
+}
+
+function onCardDrop(e, colId) {
+  e.preventDefault();
+  if(!dragCardId) return;
+  const cards = getUserCards();
+  const card = cards.find(c => c.id === dragCardId);
+  if(card) { card.columnId = colId; card.position = cards.filter(c => c.columnId === colId).length; saveCards(cards); }
+  refreshCRM();
+}
+
+function moveCardForward(cardId) {
+  const cols = getUserColumns();
+  const cards = getUserCards();
+  const card = cards.find(c => c.id === cardId);
+  if(!card) return;
+  const curIdx = cols.findIndex(c => c.id === card.columnId);
+  if(curIdx === -1 || curIdx >= cols.length-1) { showToast('Já está na última coluna', 'info'); return; }
+  const nextCol = cols[curIdx+1];
+  card.columnId = nextCol.id;
+  card.position = cards.filter(c => c.columnId === nextCol.id).length;
+  saveCards(cards);
+  addNotification(`"${card.name}" movido para "${nextCol.name}"`, 'info');
+  showToast(`Movido para "${nextCol.name}"`, 'success');
+  refreshCRM();
+}
+
+function deleteCard(cardId) {
+  if(!confirm('Excluir este card? Esta ação não pode ser desfeita.')) return;
+  const cards = getUserCards().filter(c => c.id !== cardId);
+  saveCards(cards);
+  showToast('Card excluído', 'success');
+  refreshCRM();
+}
+
+function filterCRM() {
+  const search = (document.getElementById('crm-search')?.value||'').toLowerCase();
+  const colFilter = document.getElementById('crm-filter-col')?.value||'';
+  const cards = getUserCards();
+  const filtered = cards.filter(c => {
+    const matchSearch = !search || c.name.toLowerCase().includes(search) || (c.serviceType||'').toLowerCase().includes(search) || (c.phone||'').includes(search);
+    const matchCol = !colFilter || c.columnId === colFilter;
+    return matchSearch && matchCol;
+  });
+  const cols = getUserColumns();
+  const board = document.getElementById('kanban-board');
+  if(!board) return;
+  board.innerHTML = cols.map(col => renderColumn(col, filtered)).join('');
+}
+
+function refreshCRM() {
+  const content = document.getElementById('page-content');
+  if(content && state.page === 'crm') { content.innerHTML = renderCRM(); }
+}
+
+// ---- COLUMN MODAL ----
+let editingColumnId = null;
+function openColumnModal(colId = null) {
+  editingColumnId = colId;
+  const col = colId ? getUserColumns().find(c => c.id === colId) : null;
+  const colorOptions = ['#6366f1','#0891b2','#d97706','#059669','#dc2626','#7c3aed','#db2777','#0d9488'];
+  showModal(`
+<div class="modal modal-sm drop-in" onclick="event.stopPropagation()">
+  <div class="modal-header">
+    <h3 style="font-size:16px;font-weight:700">${col ? 'Editar Coluna' : 'Nova Coluna'}</h3>
+    <button class="btn btn-ghost btn-icon" onclick="closeModal()"><i class="fas fa-times"></i></button>
+  </div>
+  <div class="modal-body">
+    <div class="form-group" style="margin-bottom:16px">
+      <label class="form-label">Nome da Coluna</label>
+      <input id="col-name" class="form-input" value="${col?.name||''}" placeholder="Ex: Proposta Enviada" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">Cor</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${colorOptions.map((c,i) => `
+          <div onclick="selectColColor(${i})" id="color-opt-${i}" style="width:32px;height:32px;border-radius:50%;background:${c};cursor:pointer;border:3px solid ${(col?.color===i||(!col&&i===0))?'white':'transparent'};transition:all 0.2s"></div>
+        `).join('')}
+      </div>
+      <input type="hidden" id="col-color" value="${col?.color||0}" />
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+    <button class="btn btn-primary" onclick="saveColumn()">Salvar</button>
+  </div>
+</div>`);
+}
+function selectColColor(i) {
+  document.getElementById('col-color').value = i;
+  document.querySelectorAll('[id^="color-opt-"]').forEach(el => el.style.borderColor = 'transparent');
+  document.getElementById('color-opt-'+i).style.borderColor = 'white';
+}
+function saveColumn() {
+  const name = document.getElementById('col-name').value.trim();
+  const color = parseInt(document.getElementById('col-color').value)||0;
+  if(!name) { showToast('Digite o nome da coluna', 'error'); return; }
+  const cols = getUserColumns();
+  if(editingColumnId) {
+    const col = cols.find(c => c.id === editingColumnId);
+    if(col) { col.name = name; col.color = color; }
+  } else {
+    cols.push({ id: uid(), name, position: cols.length, color, userId: state.currentUser.id });
+  }
+  saveColumns(cols); closeModal(); showToast('Coluna salva!', 'success'); refreshCRM();
+}
+function editColumn(colId) { openColumnModal(colId); }
+function deleteColumn(colId) {
+  const cards = getUserCards().filter(c => c.columnId === colId);
+  if(cards.length > 0) {
+    if(!confirm(`Esta coluna tem ${cards.length} card(s). Excluir a coluna moverá os cards para a lixeira. Continuar?`)) return;
+    // Remove cards from this column
+    const allCards = getUserCards().filter(c => c.columnId !== colId);
+    saveCards(allCards);
+  }
+  const cols = getUserColumns().filter(c => c.id !== colId);
+  cols.forEach((c,i) => c.position = i);
+  saveColumns(cols);
+  showToast('Coluna excluída', 'success');
+  refreshCRM();
+}
+
+
+// ============================================
+// CARD MODAL (Client Details - 5 tabs)
+// ============================================
+let currentCardId = null;
+let currentModalTab = 'dados';
+
+function openCardModal(cardId = null, presetColId = null) {
+  currentCardId = cardId;
+  currentModalTab = 'dados';
+  const card = cardId ? getUserCards().find(c => c.id === cardId) : null;
+  const cols = getUserColumns();
+  const guestLabel = DB.get('guest_label') || 'Quantidade de Convidados';
+  const serviceLabel = DB.get('service_label') || 'Tipo de Serviço';
+  const serviceTypes = DB.get('service_types') || [];
+  
+  showModal(`
+<div class="modal modal-xl drop-in" onclick="event.stopPropagation()" style="max-width:900px">
+  <div class="modal-header" style="background:linear-gradient(135deg,#0f172a,#1e293b)">
+    <div style="display:flex;align-items:center;gap:12px">
+      <div style="width:44px;height:44px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:12px;display:flex;align-items:center;justify-content:center">
+        <i class="fas fa-user" style="color:white;font-size:18px"></i>
+      </div>
+      <div>
+        <h3 style="font-size:16px;font-weight:700">${card ? card.name : 'Novo Cliente'}</h3>
+        <p style="font-size:12px;color:#64748b">${card ? 'Editar informações do cliente' : 'Cadastrar novo cliente no CRM'}</p>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      ${card ? `
+      <button class="btn btn-warning btn-sm" onclick="moveCardForwardFromModal('${card.id}')">
+        <i class="fas fa-arrow-right"></i> Próxima Coluna
+      </button>
+      <button class="btn btn-danger btn-sm" onclick="deleteCardFromModal('${card.id}')">
+        <i class="fas fa-trash"></i>
+      </button>` : ''}
+      <button class="btn btn-ghost btn-icon" onclick="closeModal()"><i class="fas fa-times"></i></button>
+    </div>
+  </div>
+  
+  <!-- Tabs -->
+  <div style="padding:0 24px;background:#0f172a;border-bottom:1px solid #1e293b">
+    <div class="tabs">
+      <div class="tab active" id="tab-btn-dados" onclick="switchCardTab('dados')"><i class="fas fa-user" style="margin-right:6px"></i>Dados Pessoais</div>
+      <div class="tab" id="tab-btn-servico" onclick="switchCardTab('servico')"><i class="fas fa-briefcase" style="margin-right:6px"></i>Serviço</div>
+      <div class="tab" id="tab-btn-financeiro" onclick="switchCardTab('financeiro')"><i class="fas fa-dollar-sign" style="margin-right:6px"></i>Financeiro</div>
+      <div class="tab" id="tab-btn-tarefas" onclick="switchCardTab('tarefas')"><i class="fas fa-tasks" style="margin-right:6px"></i>Tarefas</div>
+      <div class="tab" id="tab-btn-notas" onclick="switchCardTab('notas')"><i class="fas fa-sticky-note" style="margin-right:6px"></i>Notas</div>
+      <div class="tab" id="tab-btn-arquivos" onclick="switchCardTab('arquivos')"><i class="fas fa-paperclip" style="margin-right:6px"></i>Arquivos</div>
+    </div>
+  </div>
+  
+  <div class="modal-body">
+    <!-- TAB: DADOS PESSOAIS -->
+    <div id="tab-dados" class="tab-content">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="form-group">
+          <label class="form-label">Nome Completo *</label>
+          <input id="card-name" class="form-input" value="${card?.name||''}" placeholder="Nome do cliente" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">E-mail</label>
+          <input id="card-email" class="form-input" type="email" value="${card?.email||''}" placeholder="email@exemplo.com" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Telefone / WhatsApp</label>
+          <input id="card-phone" class="form-input" value="${card?.phone||''}" placeholder="(11) 99999-9999" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">CPF / CNPJ</label>
+          <input id="card-cpf" class="form-input" value="${card?.cpf||''}" placeholder="000.000.000-00" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Cidade</label>
+          <input id="card-city" class="form-input" value="${card?.city||''}" placeholder="Sua cidade" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Estado</label>
+          <input id="card-state" class="form-input" value="${card?.state||''}" placeholder="SP" maxlength="2" />
+        </div>
+        <div class="form-group" style="grid-column:span 2">
+          <label class="form-label">Endereço</label>
+          <input id="card-address" class="form-input" value="${card?.address||''}" placeholder="Rua, número, complemento" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Coluna no Kanban</label>
+          <select id="card-column" class="form-select">
+            ${cols.map(c => `<option value="${c.id}" ${(card?.columnId===c.id||(presetColId===c.id&&!card))?'selected':''}>${c.name}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Tags (separadas por vírgula)</label>
+          <input id="card-tags" class="form-input" value="${card?.tags?.join(', ')||''}" placeholder="vip, novo, referência" />
+        </div>
+      </div>
+    </div>
+    
+    <!-- TAB: SERVIÇO -->
+    <div id="tab-servico" class="tab-content" style="display:none">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div class="form-group">
+          <label class="form-label">${serviceLabel}</label>
+          <select id="card-service-type" class="form-select">
+            <option value="">Selecione...</option>
+            ${serviceTypes.map(t => `<option value="${t}" ${card?.serviceType===t?'selected':''}>${t}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">${guestLabel}</label>
+          <input id="card-guests" class="form-input" type="number" value="${card?.guests||''}" placeholder="0" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Data do Evento/Serviço</label>
+          <input id="card-event-date" class="form-input" type="date" value="${card?.eventDate ? formatDateInput(card.eventDate) : ''}" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Horário</label>
+          <input id="card-event-time" class="form-input" type="time" value="${card?.eventTime||''}" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Local do Evento</label>
+          <input id="card-venue" class="form-input" value="${card?.venue||''}" placeholder="Nome do local" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Duração (horas)</label>
+          <input id="card-duration" class="form-input" type="number" value="${card?.duration||''}" placeholder="4" />
+        </div>
+        <div class="form-group" style="grid-column:span 2">
+          <label class="form-label">Descrição do Serviço</label>
+          <textarea id="card-service-desc" class="form-textarea" placeholder="Descreva os detalhes do serviço...">${card?.serviceDesc||''}</textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Nome do Parceiro/Cônjuge</label>
+          <input id="card-partner" class="form-input" value="${card?.partner||''}" placeholder="Nome do parceiro" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Como nos conheceu</label>
+          <select id="card-source" class="form-select">
+            <option value="">Selecione...</option>
+            ${['Instagram','Facebook','Google','Indicação','Site','WhatsApp','Feiras/Eventos','Outro'].map(s => `<option value="${s}" ${card?.source===s?'selected':''}>${s}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+    </div>
+    
+    <!-- TAB: FINANCEIRO -->
+    <div id="tab-financeiro" class="tab-content" style="display:none">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px">
+        <div class="form-group">
+          <label class="form-label">Valor Total do Contrato</label>
+          <input id="card-total-value" class="form-input" type="number" step="0.01" value="${card?.totalValue||''}" placeholder="0,00" oninput="updateFinancialSummary()" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Valor já Pago</label>
+          <input id="card-paid-value" class="form-input" type="number" step="0.01" value="${card?.paidValue||''}" placeholder="0,00" oninput="updateFinancialSummary()" readonly />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Valor Restante</label>
+          <input id="card-remaining-value" class="form-input" type="number" value="${(Number(card?.totalValue||0) - Number(card?.paidValue||0)).toFixed(2)}" readonly />
+        </div>
+      </div>
+      
+      <!-- Financial summary -->
+      <div id="fin-summary" style="background:#1e293b;border-radius:12px;padding:16px;margin-bottom:20px">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div style="text-align:center">
+            <div style="font-size:12px;color:#64748b">Total</div>
+            <div id="fin-total" style="font-size:18px;font-weight:700;color:#f1f5f9">${formatCurrency(card?.totalValue||0)}</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:12px;color:#64748b">Pago</div>
+            <div id="fin-paid" style="font-size:18px;font-weight:700;color:#34d399">${formatCurrency(card?.paidValue||0)}</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:12px;color:#64748b">Restante</div>
+            <div id="fin-remaining" style="font-size:18px;font-weight:700;color:#fbbf24">${formatCurrency(Number(card?.totalValue||0)-Number(card?.paidValue||0))}</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:12px;color:#64748b">Pagamento</div>
+            <div id="fin-pct" style="font-size:18px;font-weight:700;color:#818cf8">${card?.totalValue > 0 ? Math.round(Number(card?.paidValue||0)/Number(card?.totalValue)*100) : 0}%</div>
+          </div>
+        </div>
+        <div class="progress-bar" style="margin-top:12px">
+          <div id="fin-progress" class="progress-bar-fill" style="width:${card?.totalValue > 0 ? Math.round(Number(card?.paidValue||0)/Number(card?.totalValue)*100) : 0}%"></div>
+        </div>
+      </div>
+      
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+        <div class="form-group">
+          <label class="form-label">Forma de Pagamento</label>
+          <select id="card-payment-method" class="form-select">
+            ${['Pix','Cartão de Crédito','Cartão de Débito','Dinheiro','Transferência','Boleto','Cheque'].map(p => `<option value="${p}" ${card?.paymentMethod===p?'selected':''}>${p}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Parcelas</label>
+          <input id="card-installments" class="form-input" type="number" min="1" value="${card?.installments||1}" placeholder="1" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Vencimento 1ª Parcela</label>
+          <input id="card-due-date" class="form-input" type="date" value="${card?.dueDate ? formatDateInput(card.dueDate) : ''}" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Próximo Vencimento</label>
+          <input id="card-next-due" class="form-input" type="date" value="${card?.nextDueDate ? formatDateInput(card.nextDueDate) : ''}" />
+        </div>
+      </div>
+      
+      <!-- Payments history for existing cards -->
+      ${card ? `
+      <div style="margin-top:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <h4 style="font-size:14px;font-weight:600;color:#f1f5f9">Histórico de Pagamentos</h4>
+          <button class="btn btn-success btn-sm" onclick="openPaymentModal('${card.id}')">
+            <i class="fas fa-plus"></i> Registrar Pagamento
+          </button>
+        </div>
+        <div id="payment-history-list">
+          ${renderPaymentHistory(card.id)}
+        </div>
+      </div>` : ''}
+    </div>
+    
+    <!-- TAB: TAREFAS -->
+    <div id="tab-tarefas" class="tab-content" style="display:none">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+        <button class="btn btn-primary btn-sm" onclick="addTaskToCard()">
+          <i class="fas fa-plus"></i> Nova Tarefa
+        </button>
+      </div>
+      <div id="card-tasks-list">
+        ${card ? renderCardTasks(card.id) : '<p style="color:#475569;font-size:13px">Salve o cliente primeiro para adicionar tarefas</p>'}
+      </div>
+      ${card ? `
+      <div style="margin-top:16px;padding:12px;background:#1e293b;border-radius:8px;display:none" id="new-task-form">
+        <div style="display:grid;grid-template-columns:1fr auto auto;gap:8px">
+          <input id="new-task-text" class="form-input" placeholder="Descrição da tarefa..." />
+          <input id="new-task-date" class="form-input" type="date" />
+          <button class="btn btn-primary btn-sm" onclick="saveNewTask('${card.id}')">Salvar</button>
+        </div>
+      </div>` : ''}
+    </div>
+    
+    <!-- TAB: NOTAS -->
+    <div id="tab-notas" class="tab-content" style="display:none">
+      <div class="form-group">
+        <label class="form-label">Notas e Observações</label>
+        <textarea id="card-notes" class="form-textarea" style="min-height:200px" placeholder="Digite suas notas sobre este cliente...">${card?.notes||''}</textarea>
+      </div>
+    </div>
+    
+    <!-- TAB: ARQUIVOS -->
+    <div id="tab-arquivos" class="tab-content" style="display:none">
+      <div class="upload-zone" id="upload-zone" onclick="triggerFileUpload()" ondragover="onFileDragOver(event)" ondragleave="onFileDragLeave(event)" ondrop="onFileDrop(event)">
+        <i class="fas fa-cloud-upload-alt" style="font-size:36px;margin-bottom:12px;color:#6366f1"></i>
+        <p style="font-size:15px;font-weight:500;margin-bottom:4px">Clique ou arraste arquivos aqui</p>
+        <p style="font-size:13px;color:#64748b">Suporta imagens (JPG, PNG, GIF) e documentos (PDF, DOC)</p>
+      </div>
+      <input type="file" id="file-input" multiple accept="image/*,.pdf,.doc,.docx" style="display:none" onchange="handleFileSelect(event)" />
+      <div id="files-list" style="margin-top:16px">
+        ${card ? renderFilesList(card.id) : ''}
+      </div>
+    </div>
+  </div>
+  
+  <div class="modal-footer">
+    ${card ? `<button class="btn btn-danger btn-sm" onclick="deleteCardFromModal('${card.id}')"><i class="fas fa-trash"></i> Excluir</button>` : ''}
+    <div style="flex:1"></div>
+    <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+    <button class="btn btn-primary" onclick="saveCard()">
+      <i class="fas fa-save"></i> Salvar Cliente
+    </button>
+  </div>
+</div>`);
+}
+
+function switchCardTab(tab) {
+  currentModalTab = tab;
+  document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
+  document.querySelectorAll('[id^="tab-btn-"]').forEach(el => el.classList.remove('active'));
+  const content = document.getElementById('tab-' + tab);
+  const btn = document.getElementById('tab-btn-' + tab);
+  if(content) content.style.display = 'block';
+  if(btn) btn.classList.add('active');
+}
+
+function updateFinancialSummary() {
+  const total = Number(document.getElementById('card-total-value')?.value||0);
+  const paid = Number(document.getElementById('card-paid-value')?.value||0);
+  const remaining = total - paid;
+  const pct = total > 0 ? Math.round(paid/total*100) : 0;
+  if(document.getElementById('fin-total')) document.getElementById('fin-total').textContent = formatCurrency(total);
+  if(document.getElementById('fin-paid')) document.getElementById('fin-paid').textContent = formatCurrency(paid);
+  if(document.getElementById('fin-remaining')) document.getElementById('fin-remaining').textContent = formatCurrency(remaining);
+  if(document.getElementById('fin-pct')) document.getElementById('fin-pct').textContent = pct + '%';
+  if(document.getElementById('fin-progress')) document.getElementById('fin-progress').style.width = pct + '%';
+  if(document.getElementById('card-remaining-value')) document.getElementById('card-remaining-value').value = remaining.toFixed(2);
+}
+
+function saveCard() {
+  const name = document.getElementById('card-name')?.value?.trim();
+  if(!name) { showToast('Digite o nome do cliente', 'error'); switchCardTab('dados'); return; }
+  
+  const cards = getUserCards();
+  const existingCard = currentCardId ? cards.find(c => c.id === currentCardId) : null;
+  
+  const cardData = {
+    id: currentCardId || uid(),
+    userId: state.currentUser.id,
+    name,
+    email: document.getElementById('card-email')?.value||'',
+    phone: document.getElementById('card-phone')?.value||'',
+    cpf: document.getElementById('card-cpf')?.value||'',
+    city: document.getElementById('card-city')?.value||'',
+    state: document.getElementById('card-state')?.value||'',
+    address: document.getElementById('card-address')?.value||'',
+    columnId: document.getElementById('card-column')?.value||getUserColumns()[0]?.id||'',
+    tags: (document.getElementById('card-tags')?.value||'').split(',').map(t=>t.trim()).filter(Boolean),
+    // Service
+    serviceType: document.getElementById('card-service-type')?.value||'',
+    guests: document.getElementById('card-guests')?.value||'',
+    eventDate: document.getElementById('card-event-date')?.value||'',
+    eventTime: document.getElementById('card-event-time')?.value||'',
+    venue: document.getElementById('card-venue')?.value||'',
+    duration: document.getElementById('card-duration')?.value||'',
+    serviceDesc: document.getElementById('card-service-desc')?.value||'',
+    partner: document.getElementById('card-partner')?.value||'',
+    source: document.getElementById('card-source')?.value||'',
+    // Financial
+    totalValue: Number(document.getElementById('card-total-value')?.value||0),
+    paidValue: existingCard?.paidValue || 0,
+    paymentMethod: document.getElementById('card-payment-method')?.value||'Pix',
+    installments: Number(document.getElementById('card-installments')?.value||1),
+    dueDate: document.getElementById('card-due-date')?.value||'',
+    nextDueDate: document.getElementById('card-next-due')?.value||'',
+    // Notes
+    notes: document.getElementById('card-notes')?.value||'',
+    // Preserve existing data
+    position: existingCard?.position || 0,
+    files: existingCard?.files || [],
+    createdAt: existingCard?.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+  
+  if(currentCardId) {
+    const idx = cards.findIndex(c => c.id === currentCardId);
+    if(idx !== -1) cards[idx] = cardData;
+  } else {
+    cardData.position = cards.filter(c => c.columnId === cardData.columnId).length;
+    cards.push(cardData);
+    addNotification(`Novo cliente "${name}" cadastrado`, 'success');
+  }
+  
+  saveCards(cards);
+  closeModal();
+  showToast(currentCardId ? 'Cliente atualizado!' : 'Cliente cadastrado!', 'success');
+  if(state.page === 'crm') refreshCRM();
+  else if(state.page === 'clientes') navigate('clientes');
+}
+
+function deleteCardFromModal(cardId) {
+  if(!confirm('Excluir este cliente? Esta ação não pode ser desfeita.')) return;
+  const cards = getUserCards().filter(c => c.id !== cardId);
+  saveCards(cards);
+  // Remove tasks
+  const tasks = getUserTasks().filter(t => t.cardId !== cardId);
+  saveTasks(tasks);
+  closeModal();
+  showToast('Cliente excluído', 'success');
+  if(state.page === 'crm') refreshCRM();
+  else navigate('clientes');
+}
+
+function moveCardForwardFromModal(cardId) {
+  closeModal();
+  moveCardForward(cardId);
+  if(state.page === 'crm') refreshCRM();
+}
+
+// ---- TASKS IN CARD ----
+function renderCardTasks(cardId) {
+  const tasks = getUserTasks().filter(t => t.cardId === cardId);
+  if(!tasks.length) return '<p style="color:#475569;font-size:13px;text-align:center;padding:20px">Nenhuma tarefa. Clique em Nova Tarefa para adicionar.</p>';
+  return tasks.map(t => `
+  <div style="display:flex;align-items:center;gap:10px;padding:10px;background:#1e293b;border-radius:8px;margin-bottom:6px">
+    <input type="checkbox" ${t.done?'checked':''} style="width:16px;height:16px;cursor:pointer;accent-color:#6366f1" onchange="toggleTask('${t.id}')" />
+    <div style="flex:1">
+      <div style="font-size:13px;color:${t.done?'#475569':'#e2e8f0'};text-decoration:${t.done?'line-through':'none'}">${t.text}</div>
+      ${t.dueDate ? `<div style="font-size:11px;color:#64748b;margin-top:2px"><i class="fas fa-calendar" style="margin-right:4px"></i>${formatDate(t.dueDate)}</div>` : ''}
+    </div>
+    <button class="btn btn-ghost btn-icon" style="padding:4px;color:#ef4444" onclick="deleteTask('${t.id}')"><i class="fas fa-times" style="font-size:12px"></i></button>
+  </div>`).join('');
+}
+
+function addTaskToCard() {
+  const form = document.getElementById('new-task-form');
+  if(form) form.style.display = 'block';
+}
+
+function saveNewTask(cardId) {
+  const text = document.getElementById('new-task-text')?.value?.trim();
+  if(!text) { showToast('Digite a descrição da tarefa', 'error'); return; }
+  const dueDate = document.getElementById('new-task-date')?.value||'';
+  const tasks = getUserTasks();
+  tasks.push({ id: uid(), userId: state.currentUser.id, cardId, text, dueDate, done: false, createdAt: new Date().toISOString() });
+  saveTasks(tasks);
+  const list = document.getElementById('card-tasks-list');
+  if(list) list.innerHTML = renderCardTasks(cardId);
+  document.getElementById('new-task-text').value = '';
+  document.getElementById('new-task-date').value = '';
+  const form = document.getElementById('new-task-form');
+  if(form) form.style.display = 'none';
+  showToast('Tarefa adicionada', 'success');
+}
+
+function toggleTask(taskId) {
+  const tasks = getUserTasks();
+  const task = tasks.find(t => t.id === taskId);
+  if(task) task.done = !task.done;
+  saveTasks(tasks);
+  if(task?.cardId) {
+    const list = document.getElementById('card-tasks-list');
+    if(list) list.innerHTML = renderCardTasks(task.cardId);
+  }
+}
+
+function deleteTask(taskId) {
+  const tasks = getUserTasks();
+  const task = tasks.find(t => t.id === taskId);
+  const cardId = task?.cardId;
+  const remaining = tasks.filter(t => t.id !== taskId);
+  saveTasks(remaining);
+  if(cardId) {
+    const list = document.getElementById('card-tasks-list');
+    if(list) list.innerHTML = renderCardTasks(cardId);
+  }
+  showToast('Tarefa removida', 'success');
+}
+
+// ---- FILE UPLOAD (base64 in localStorage) ----
+function renderFilesList(cardId) {
+  const card = getUserCards().find(c => c.id === cardId);
+  const files = card?.files || [];
+  if(!files.length) return '<p style="color:#475569;font-size:13px;text-align:center;padding:20px">Nenhum arquivo anexado</p>';
+  return `<div style="display:flex;flex-direction:column;gap:8px">${files.map((f, i) => `
+  <div class="file-item">
+    <div class="file-icon ${f.type?.includes('pdf') ? 'pdf' : f.type?.includes('image') ? 'image' : 'doc'}">
+      <i class="fas ${f.type?.includes('pdf') ? 'fa-file-pdf' : f.type?.includes('image') ? 'fa-image' : 'fa-file-alt'}"></i>
+    </div>
+    <div style="flex:1;min-width:0">
+      <div style="font-size:13px;font-weight:500;color:#e2e8f0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${f.name}</div>
+      <div style="font-size:11px;color:#64748b">${formatFileSize(f.size)} • ${formatDate(f.uploadedAt)}</div>
+    </div>
+    ${f.data ? `<a href="${f.data}" download="${f.name}" class="btn btn-ghost btn-icon btn-sm" title="Baixar"><i class="fas fa-download"></i></a>` : ''}
+    ${f.type?.includes('image') && f.data ? `<button class="btn btn-ghost btn-icon btn-sm" onclick="previewFile('${cardId}',${i})" title="Visualizar"><i class="fas fa-eye"></i></button>` : ''}
+    <button class="btn btn-ghost btn-icon btn-sm" style="color:#ef4444" onclick="deleteFile('${cardId}',${i})" title="Excluir"><i class="fas fa-trash"></i></button>
+  </div>`).join('')}</div>`;
+}
+
+function formatFileSize(bytes) {
+  if(!bytes) return '0 B';
+  if(bytes < 1024) return bytes + ' B';
+  if(bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
+  return (bytes/(1024*1024)).toFixed(1) + ' MB';
+}
+
+function triggerFileUpload() { document.getElementById('file-input')?.click(); }
+function onFileDragOver(e) { e.preventDefault(); document.getElementById('upload-zone')?.classList.add('drag-over'); }
+function onFileDragLeave(e) { document.getElementById('upload-zone')?.classList.remove('drag-over'); }
+function onFileDrop(e) {
+  e.preventDefault();
+  document.getElementById('upload-zone')?.classList.remove('drag-over');
+  handleFiles(e.dataTransfer.files);
+}
+
+function handleFileSelect(e) { handleFiles(e.target.files); }
+
+function handleFiles(files) {
+  if(!currentCardId) { showToast('Salve o cliente primeiro', 'error'); return; }
+  const maxSize = 5 * 1024 * 1024; // 5MB
+  Array.from(files).forEach(file => {
+    if(file.size > maxSize) { showToast(`${file.name}: arquivo muito grande (máx 5MB)`, 'error'); return; }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const cards = getUserCards();
+      const card = cards.find(c => c.id === currentCardId);
+      if(!card) return;
+      if(!card.files) card.files = [];
+      card.files.push({ name: file.name, type: file.type, size: file.size, data: e.target.result, uploadedAt: new Date().toISOString() });
+      saveCards(cards);
+      const list = document.getElementById('files-list');
+      if(list) list.innerHTML = renderFilesList(currentCardId);
+      showToast(`${file.name} anexado`, 'success');
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function deleteFile(cardId, fileIdx) {
+  const cards = getUserCards();
+  const card = cards.find(c => c.id === cardId);
+  if(!card || !card.files) return;
+  card.files.splice(fileIdx, 1);
+  saveCards(cards);
+  const list = document.getElementById('files-list');
+  if(list) list.innerHTML = renderFilesList(cardId);
+  showToast('Arquivo removido', 'success');
+}
+
+function previewFile(cardId, fileIdx) {
+  const card = getUserCards().find(c => c.id === cardId);
+  if(!card?.files?.[fileIdx]) return;
+  const file = card.files[fileIdx];
+  showModal(`
+<div class="modal modal-lg drop-in" onclick="event.stopPropagation()">
+  <div class="modal-header">
+    <h3>${file.name}</h3>
+    <button class="btn btn-ghost btn-icon" onclick="closeModal()"><i class="fas fa-times"></i></button>
+  </div>
+  <div class="modal-body" style="text-align:center">
+    <img src="${file.data}" style="max-width:100%;max-height:70vh;border-radius:8px" />
+  </div>
+</div>`);
+}
+
+
+// ============================================
+// FINANCIAL MODULE
+// ============================================
+function renderPaymentHistory(cardId) {
+  const txns = getUserTransactions().filter(t => t.cardId === cardId && t.type === 'receita');
+  if(!txns.length) return '<p style="color:#475569;font-size:13px">Nenhum pagamento registrado ainda</p>';
+  return `<div class="table-container"><table>
+    <thead><tr><th>Data</th><th>Valor</th><th>Método</th><th>Descrição</th><th></th></tr></thead>
+    <tbody>
+      ${txns.sort((a,b) => new Date(b.date||b.createdAt) - new Date(a.date||a.createdAt)).map(t => `
+      <tr>
+        <td>${formatDate(t.date||t.createdAt)}</td>
+        <td style="color:#34d399;font-weight:600">+${formatCurrency(t.amount)}</td>
+        <td>${t.paymentMethod||'Pix'}</td>
+        <td>${t.description||'-'}</td>
+        <td><button class="btn btn-ghost btn-icon btn-sm" style="color:#ef4444" onclick="deleteTransaction('${t.id}','${cardId}')"><i class="fas fa-trash"></i></button></td>
+      </tr>`).join('')}
+    </tbody>
+  </table></div>`;
+}
+
+function openPaymentModal(cardId) {
+  const card = getUserCards().find(c => c.id === cardId);
+  if(!card) return;
+  const remaining = Number(card.totalValue||0) - Number(card.paidValue||0);
+  showModal(`
+<div class="modal modal-sm drop-in" onclick="event.stopPropagation()">
+  <div class="modal-header">
+    <h3 style="font-size:16px;font-weight:700">Registrar Pagamento</h3>
+    <button class="btn btn-ghost btn-icon" onclick="closePaymentModal()"><i class="fas fa-times"></i></button>
+  </div>
+  <div class="modal-body">
+    <div style="background:#1e293b;border-radius:10px;padding:16px;margin-bottom:16px">
+      <div style="font-size:13px;color:#64748b">Cliente: <span style="color:#e2e8f0;font-weight:600">${card.name}</span></div>
+      <div style="font-size:13px;color:#64748b;margin-top:4px">Total: <span style="color:#f1f5f9;font-weight:600">${formatCurrency(card.totalValue)}</span></div>
+      <div style="font-size:13px;color:#64748b;margin-top:4px">Já pago: <span style="color:#34d399;font-weight:600">${formatCurrency(card.paidValue||0)}</span></div>
+      <div style="font-size:13px;color:#64748b;margin-top:4px">Restante: <span style="color:#fbbf24;font-weight:600">${formatCurrency(remaining)}</span></div>
+    </div>
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label">Valor do Pagamento *</label>
+      <input id="pay-amount" class="form-input" type="number" step="0.01" value="${remaining > 0 ? remaining.toFixed(2) : ''}" placeholder="0,00" />
+    </div>
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label">Data</label>
+      <input id="pay-date" class="form-input" type="date" value="${new Date().toISOString().split('T')[0]}" />
+    </div>
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label">Método</label>
+      <select id="pay-method" class="form-select">
+        ${['Pix','Cartão de Crédito','Cartão de Débito','Dinheiro','Transferência','Boleto','Cheque'].map(p => `<option value="${p}">${p}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Próximo Vencimento</label>
+      <input id="pay-next-due" class="form-input" type="date" />
+    </div>
+    <div class="form-group" style="margin-top:12px">
+      <label class="form-label">Descrição</label>
+      <input id="pay-desc" class="form-input" placeholder="Ex: Sinal, Parcela 1/3..." />
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-secondary" onclick="closePaymentModal()">Cancelar</button>
+    <button class="btn btn-success" onclick="savePayment('${cardId}')">
+      <i class="fas fa-check"></i> Confirmar Pagamento
+    </button>
+  </div>
+</div>`, true);
+}
+
+function closePaymentModal() {
+  const extra = document.getElementById('modal-extra-overlay');
+  if(extra) extra.remove();
+}
+
+function savePayment(cardId) {
+  const amount = Number(document.getElementById('pay-amount')?.value||0);
+  if(!amount || amount <= 0) { showToast('Digite o valor do pagamento', 'error'); return; }
+  const date = document.getElementById('pay-date')?.value || new Date().toISOString().split('T')[0];
+  const method = document.getElementById('pay-method')?.value || 'Pix';
+  const desc = document.getElementById('pay-desc')?.value || 'Pagamento';
+  const nextDue = document.getElementById('pay-next-due')?.value || '';
+  
+  const cards = getUserCards();
+  const card = cards.find(c => c.id === cardId);
+  if(!card) return;
+  
+  card.paidValue = Number(card.paidValue||0) + amount;
+  if(nextDue) card.nextDueDate = nextDue;
+  saveCards(cards);
+  
+  const txns = getUserTransactions();
+  txns.push({
+    id: uid(), userId: state.currentUser.id, cardId, clientName: card.name,
+    type: 'receita', amount, date, paymentMethod: method, description: desc,
+    createdAt: new Date().toISOString()
+  });
+  saveTransactions(txns);
+  
+  addNotification(`Pagamento de ${formatCurrency(amount)} registrado para ${card.name}`, 'success');
+  closePaymentModal();
+  
+  // Refresh payment history if modal is open
+  const histEl = document.getElementById('payment-history-list');
+  if(histEl) { histEl.innerHTML = renderPaymentHistory(cardId); }
+  const paidEl = document.getElementById('card-paid-value');
+  if(paidEl) { paidEl.value = card.paidValue; updateFinancialSummary(); }
+  
+  showToast('Pagamento registrado!', 'success');
+}
+
+function deleteTransaction(txnId, cardId) {
+  if(!confirm('Excluir este pagamento?')) return;
+  const txn = getUserTransactions().find(t => t.id === txnId);
+  if(txn && txn.cardId && txn.type === 'receita') {
+    const cards = getUserCards();
+    const card = cards.find(c => c.id === txn.cardId);
+    if(card) { card.paidValue = Math.max(0, Number(card.paidValue||0) - Number(txn.amount||0)); saveCards(cards); }
+  }
+  const txns = getUserTransactions().filter(t => t.id !== txnId);
+  saveTransactions(txns);
+  if(cardId) {
+    const histEl = document.getElementById('payment-history-list');
+    if(histEl) histEl.innerHTML = renderPaymentHistory(cardId);
+    const card = getUserCards().find(c => c.id === cardId);
+    if(card) {
+      const paidEl = document.getElementById('card-paid-value');
+      if(paidEl) { paidEl.value = card.paidValue||0; updateFinancialSummary(); }
+    }
+  }
+  showToast('Pagamento removido', 'success');
+}
+
+// ---- FINANCEIRO PAGE ----
+let finTab = 'visao';
+function renderFinanceiro() {
+  const txns = getUserTransactions();
+  const cards = getUserCards();
+  const totalReceita = txns.filter(t => t.type === 'receita').reduce((s,t) => s + Number(t.amount||0), 0);
+  const totalDespesa = txns.filter(t => t.type === 'despesa').reduce((s,t) => s + Number(t.amount||0), 0);
+  const saldo = totalReceita - totalDespesa;
+  
+  // A receber
+  const aReceber = cards.filter(c => Number(c.totalValue||0) > Number(c.paidValue||0));
+  const totalAReceber = aReceber.reduce((s,c) => s + (Number(c.totalValue||0) - Number(c.paidValue||0)), 0);
+  
+  return `
+<div class="fade-in">
+  <!-- KPIs -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:24px">
+    <div class="kpi-card">
+      <div style="font-size:12px;color:#64748b;margin-bottom:8px"><i class="fas fa-arrow-up" style="color:#34d399;margin-right:6px"></i>Total Receitas</div>
+      <div style="font-size:24px;font-weight:800;color:#34d399">${formatCurrency(totalReceita)}</div>
+    </div>
+    <div class="kpi-card">
+      <div style="font-size:12px;color:#64748b;margin-bottom:8px"><i class="fas fa-arrow-down" style="color:#f87171;margin-right:6px"></i>Total Despesas</div>
+      <div style="font-size:24px;font-weight:800;color:#f87171">${formatCurrency(totalDespesa)}</div>
+    </div>
+    <div class="kpi-card">
+      <div style="font-size:12px;color:#64748b;margin-bottom:8px"><i class="fas fa-balance-scale" style="color:#818cf8;margin-right:6px"></i>Saldo Líquido</div>
+      <div style="font-size:24px;font-weight:800;color:${saldo>=0?'#34d399':'#f87171'}">${formatCurrency(saldo)}</div>
+    </div>
+    <div class="kpi-card">
+      <div style="font-size:12px;color:#64748b;margin-bottom:8px"><i class="fas fa-clock" style="color:#fbbf24;margin-right:6px"></i>A Receber</div>
+      <div style="font-size:24px;font-weight:800;color:#fbbf24">${formatCurrency(totalAReceber)}</div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="card-elevated">
+    <div style="display:flex;gap:4px;border-bottom:1px solid #1e293b;margin-bottom:20px;margin:-20px -20px 20px">
+      <div style="padding:0 20px">
+        ${['visao','transacoes','a-receber','despesas'].map((t,i) => `
+        <span class="tab ${finTab===t?'active':''}" onclick="switchFinTab('${t}')">${['Visão Geral','Transações','A Receber','Despesas'][i]}</span>`).join('')}
+      </div>
+    </div>
+
+    <!-- VISÃO GERAL -->
+    <div id="fin-tab-visao" style="display:${finTab==='visao'?'block':'none'}">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+        <div>
+          <h4 style="font-size:14px;font-weight:600;color:#f1f5f9;margin-bottom:12px">Clientes com Pagamentos Pendentes</h4>
+          ${aReceber.slice(0,5).map(c => {
+            const pct = c.totalValue > 0 ? Math.round(Number(c.paidValue||0)/c.totalValue*100) : 0;
+            return `<div style="margin-bottom:12px;padding:10px;background:#1e293b;border-radius:8px;cursor:pointer" onclick="openCardModal('${c.id}')">
+              <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                <span style="font-size:13px;color:#e2e8f0">${c.name}</span>
+                <span style="font-size:12px;color:#fbbf24;font-weight:600">${formatCurrency(Number(c.totalValue)-Number(c.paidValue||0))}</span>
+              </div>
+              <div class="progress-bar"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
+              <div style="font-size:11px;color:#64748b;margin-top:4px">${pct}% pago ${c.nextDueDate ? '• Próximo venc.: '+formatDate(c.nextDueDate) : ''}</div>
+            </div>`;
+          }).join('') || '<p style="color:#475569;font-size:13px">Todos os clientes estão em dia</p>'}
+        </div>
+        <div>
+          <h4 style="font-size:14px;font-weight:600;color:#f1f5f9;margin-bottom:12px">Resumo por Mês</h4>
+          ${renderMonthlyChart(txns)}
+        </div>
+      </div>
+    </div>
+
+    <!-- TRANSAÇÕES -->
+    <div id="fin-tab-transacoes" style="display:${finTab==='transacoes'?'block':'none'}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div style="display:flex;gap:8px">
+          <input id="fin-search" class="form-input" placeholder="Buscar transação..." style="width:200px" oninput="filterTransactions()" />
+          <select id="fin-filter-type" class="form-select" style="width:auto" onchange="filterTransactions()">
+            <option value="">Todos os tipos</option>
+            <option value="receita">Receitas</option>
+            <option value="despesa">Despesas</option>
+          </select>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="openTransactionModal()">
+          <i class="fas fa-plus"></i> Nova Transação
+        </button>
+      </div>
+      <div id="transactions-table">
+        ${renderTransactionsTable(txns)}
+      </div>
+    </div>
+
+    <!-- A RECEBER -->
+    <div id="fin-tab-a-receber" style="display:${finTab==='a-receber'?'block':'none'}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h4 style="font-size:14px;font-weight:600;color:#f1f5f9">${aReceber.length} cliente(s) com pagamentos pendentes</h4>
+        <div style="font-size:14px;font-weight:700;color:#fbbf24">Total: ${formatCurrency(totalAReceber)}</div>
+      </div>
+      ${aReceber.length === 0 ? '<div style="text-align:center;padding:40px;color:#475569"><i class="fas fa-check-circle" style="font-size:48px;margin-bottom:16px;color:#10b981;opacity:0.5"></i><p>Nenhum valor pendente!</p></div>' : `
+      <div class="table-container">
+        <table>
+          <thead><tr><th>Cliente</th><th>Serviço</th><th>Valor Total</th><th>Pago</th><th>Restante</th><th>Próx. Venc.</th><th>Ações</th></tr></thead>
+          <tbody>
+            ${aReceber.map(c => `
+            <tr>
+              <td>
+                <div style="font-weight:600;color:#e2e8f0;cursor:pointer" onclick="openCardModal('${c.id}')">${c.name}</div>
+                <div style="font-size:11px;color:#64748b">${c.phone||''}</div>
+              </td>
+              <td>${c.serviceType||'-'}</td>
+              <td style="font-weight:600">${formatCurrency(c.totalValue)}</td>
+              <td style="color:#34d399">${formatCurrency(c.paidValue||0)}</td>
+              <td style="color:#fbbf24;font-weight:600">${formatCurrency(Number(c.totalValue)-Number(c.paidValue||0))}</td>
+              <td>${c.nextDueDate ? `<span style="color:${new Date(c.nextDueDate) < new Date() ? '#f87171':'#fbbf24'}">${formatDate(c.nextDueDate)}</span>` : '-'}</td>
+              <td>
+                <button class="btn btn-success btn-sm" onclick="openPaymentModal('${c.id}')"><i class="fas fa-dollar-sign"></i> Pagar</button>
+              </td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`}
+    </div>
+
+    <!-- DESPESAS -->
+    <div id="fin-tab-despesas" style="display:${finTab==='despesas'?'block':'none'}">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h4 style="font-size:14px;font-weight:600;color:#f1f5f9">Registro de Despesas</h4>
+        <button class="btn btn-danger btn-sm" onclick="openTransactionModal('despesa')">
+          <i class="fas fa-plus"></i> Nova Despesa
+        </button>
+      </div>
+      ${renderTransactionsTable(txns.filter(t => t.type === 'despesa'))}
+    </div>
+  </div>
+</div>`;
+}
+
+function switchFinTab(tab) {
+  finTab = tab;
+  ['visao','transacoes','a-receber','despesas'].forEach(t => {
+    const el = document.getElementById('fin-tab-' + t);
+    if(el) el.style.display = t === tab ? 'block' : 'none';
+  });
+  document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+  navigate('financeiro'); // re-render to update tab styles
+}
+
+function renderMonthlyChart(txns) {
+  const months = {};
+  txns.forEach(t => {
+    const d = new Date(t.date || t.createdAt);
+    const key = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+    if(!months[key]) months[key] = { receita: 0, despesa: 0 };
+    months[key][t.type] = (months[key][t.type]||0) + Number(t.amount||0);
+  });
+  const sorted = Object.entries(months).sort().slice(-6);
+  if(!sorted.length) return '<p style="color:#475569;font-size:13px">Nenhuma transação registrada</p>';
+  const maxVal = Math.max(...sorted.flatMap(([,v]) => [v.receita, v.despesa]), 1);
+  return `<div style="display:flex;flex-direction:column;gap:8px">
+    ${sorted.map(([month, data]) => `
+    <div>
+      <div style="font-size:12px;color:#64748b;margin-bottom:4px">${month}</div>
+      <div style="display:flex;gap:4px;align-items:center">
+        <div style="flex:1">
+          <div style="height:8px;background:#1e293b;border-radius:4px;overflow:hidden">
+            <div style="height:100%;width:${data.receita/maxVal*100}%;background:#10b981;border-radius:4px"></div>
+          </div>
+          <div style="font-size:11px;color:#34d399;margin-top:2px">+${formatCurrency(data.receita)}</div>
+        </div>
+        <div style="flex:1">
+          <div style="height:8px;background:#1e293b;border-radius:4px;overflow:hidden">
+            <div style="height:100%;width:${data.despesa/maxVal*100}%;background:#ef4444;border-radius:4px"></div>
+          </div>
+          <div style="font-size:11px;color:#f87171;margin-top:2px">-${formatCurrency(data.despesa)}</div>
+        </div>
+      </div>
+    </div>`).join('')}
+  </div>`;
+}
+
+function renderTransactionsTable(txns) {
+  const sorted = [...txns].sort((a,b) => new Date(b.date||b.createdAt) - new Date(a.date||a.createdAt));
+  if(!sorted.length) return '<p style="color:#475569;font-size:13px;text-align:center;padding:30px">Nenhuma transação</p>';
+  return `<div class="table-container"><table>
+    <thead><tr><th>Data</th><th>Descrição</th><th>Cliente</th><th>Tipo</th><th>Método</th><th>Valor</th><th></th></tr></thead>
+    <tbody>
+      ${sorted.map(t => `<tr>
+        <td>${formatDate(t.date||t.createdAt)}</td>
+        <td>${t.description||'-'}</td>
+        <td>${t.clientName||'-'}</td>
+        <td><span class="badge ${t.type==='receita'?'badge-success':'badge-danger'}">${t.type==='receita'?'Receita':'Despesa'}</span></td>
+        <td>${t.paymentMethod||'-'}</td>
+        <td style="color:${t.type==='receita'?'#34d399':'#f87171'};font-weight:600">${t.type==='receita'?'+':'-'}${formatCurrency(t.amount)}</td>
+        <td><button class="btn btn-ghost btn-icon btn-sm" style="color:#ef4444" onclick="deleteTransactionPage('${t.id}')"><i class="fas fa-trash"></i></button></td>
+      </tr>`).join('')}
+    </tbody>
+  </table></div>`;
+}
+
+function filterTransactions() {
+  const search = (document.getElementById('fin-search')?.value||'').toLowerCase();
+  const type = document.getElementById('fin-filter-type')?.value||'';
+  const txns = getUserTransactions().filter(t => {
+    const matchSearch = !search || (t.description||'').toLowerCase().includes(search) || (t.clientName||'').toLowerCase().includes(search);
+    const matchType = !type || t.type === type;
+    return matchSearch && matchType;
+  });
+  const el = document.getElementById('transactions-table');
+  if(el) el.innerHTML = renderTransactionsTable(txns);
+}
+
+function openTransactionModal(presetType = 'receita') {
+  const cards = getUserCards();
+  showModal(`
+<div class="modal modal-sm drop-in" onclick="event.stopPropagation()">
+  <div class="modal-header">
+    <h3 style="font-size:16px;font-weight:700">Nova Transação</h3>
+    <button class="btn btn-ghost btn-icon" onclick="closeModal()"><i class="fas fa-times"></i></button>
+  </div>
+  <div class="modal-body">
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label">Tipo</label>
+      <select id="txn-type" class="form-select">
+        <option value="receita" ${presetType==='receita'?'selected':''}>Receita</option>
+        <option value="despesa" ${presetType==='despesa'?'selected':''}>Despesa</option>
+      </select>
+    </div>
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label">Descrição *</label>
+      <input id="txn-desc" class="form-input" placeholder="Descrição da transação" />
+    </div>
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label">Valor *</label>
+      <input id="txn-amount" class="form-input" type="number" step="0.01" placeholder="0,00" />
+    </div>
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label">Data</label>
+      <input id="txn-date" class="form-input" type="date" value="${new Date().toISOString().split('T')[0]}" />
+    </div>
+    <div class="form-group" style="margin-bottom:12px">
+      <label class="form-label">Método</label>
+      <select id="txn-method" class="form-select">
+        ${['Pix','Cartão de Crédito','Cartão de Débito','Dinheiro','Transferência','Boleto','Cheque'].map(p => `<option value="${p}">${p}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Cliente (opcional)</label>
+      <select id="txn-client" class="form-select">
+        <option value="">Sem cliente vinculado</option>
+        ${cards.map(c => `<option value="${c.id}" data-name="${c.name}">${c.name}</option>`).join('')}
+      </select>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+    <button class="btn btn-primary" onclick="saveTransaction()">Salvar</button>
+  </div>
+</div>`);
+}
+
+function saveTransaction() {
+  const type = document.getElementById('txn-type')?.value;
+  const desc = document.getElementById('txn-desc')?.value?.trim();
+  const amount = Number(document.getElementById('txn-amount')?.value||0);
+  if(!desc || !amount) { showToast('Preencha descrição e valor', 'error'); return; }
+  const date = document.getElementById('txn-date')?.value || new Date().toISOString().split('T')[0];
+  const method = document.getElementById('txn-method')?.value || 'Pix';
+  const clientEl = document.getElementById('txn-client');
+  const cardId = clientEl?.value || '';
+  const clientName = cardId ? clientEl.options[clientEl.selectedIndex]?.getAttribute('data-name') : '';
+  
+  const txns = getUserTransactions();
+  txns.push({ id: uid(), userId: state.currentUser.id, cardId, clientName, type, amount, date, paymentMethod: method, description: desc, createdAt: new Date().toISOString() });
+  saveTransactions(txns);
+  
+  // If linked to a card and receita, update paidValue
+  if(cardId && type === 'receita') {
+    const cards = getUserCards();
+    const card = cards.find(c => c.id === cardId);
+    if(card) { card.paidValue = Number(card.paidValue||0) + amount; saveCards(cards); }
+  }
+  
+  closeModal();
+  showToast('Transação salva!', 'success');
+  navigate('financeiro');
+}
+
+function deleteTransactionPage(txnId) {
+  if(!confirm('Excluir esta transação?')) return;
+  const txn = getUserTransactions().find(t => t.id === txnId);
+  if(txn && txn.cardId && txn.type === 'receita') {
+    const cards = getUserCards();
+    const card = cards.find(c => c.id === txn.cardId);
+    if(card) { card.paidValue = Math.max(0, Number(card.paidValue||0) - Number(txn.amount||0)); saveCards(cards); }
+  }
+  const txns = getUserTransactions().filter(t => t.id !== txnId);
+  saveTransactions(txns);
+  showToast('Transação excluída', 'success');
+  navigate('financeiro');
+}
+
+
+// ============================================
+// CLIENTES PAGE
+// ============================================
+function renderClientes() {
+  const cards = getUserCards();
+  const cols = getUserColumns();
+  let search = '';
+  return `
+<div class="fade-in">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+    <div>
+      <h2 style="font-size:20px;font-weight:700;color:#f1f5f9">Clientes</h2>
+      <p style="font-size:13px;color:#64748b;margin-top:2px">${cards.length} cliente(s) cadastrado(s)</p>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="openCardModal()">
+      <i class="fas fa-user-plus"></i> Novo Cliente
+    </button>
+  </div>
+  
+  <div style="display:flex;gap:8px;margin-bottom:16px">
+    <div style="position:relative;flex:1;max-width:400px">
+      <i class="fas fa-search" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#475569;font-size:14px"></i>
+      <input id="cli-search" class="form-input" placeholder="Buscar cliente..." style="padding-left:36px" oninput="filterClientes()" />
+    </div>
+    <select id="cli-filter-col" class="form-select" style="width:auto" onchange="filterClientes()">
+      <option value="">Todas as colunas</option>
+      ${cols.map(c => `<option value="${c.id}">${c.name}</option>`).join('')}
+    </select>
+    <select id="cli-sort" class="form-select" style="width:auto" onchange="filterClientes()">
+      <option value="name">Nome (A-Z)</option>
+      <option value="date">Mais Recente</option>
+      <option value="value">Maior Valor</option>
+    </select>
+  </div>
+  
+  <div id="clientes-grid" class="table-container">
+    ${renderClientesTable(cards, cols)}
+  </div>
+</div>`;
+}
+
+function renderClientesTable(cards, cols) {
+  if(!cards.length) return '<div style="text-align:center;padding:40px;color:#475569"><i class="fas fa-users" style="font-size:48px;margin-bottom:16px;opacity:0.3"></i><p>Nenhum cliente cadastrado</p><button class="btn btn-primary" style="margin-top:16px" onclick="openCardModal()"><i class="fas fa-plus"></i> Adicionar Cliente</button></div>';
+  return `<table>
+    <thead><tr><th>Cliente</th><th>Contato</th><th>Serviço</th><th>Coluna</th><th>Evento</th><th>Financeiro</th><th>Ações</th></tr></thead>
+    <tbody>
+      ${cards.map(c => {
+        const col = cols.find(col => col.id === c.columnId);
+        const pct = c.totalValue > 0 ? Math.round(Number(c.paidValue||0)/c.totalValue*100) : 0;
+        return `<tr>
+          <td>
+            <div style="display:flex;align-items:center;gap:10px">
+              <div class="avatar avatar-sm" style="background:${stringToColor(c.name)};color:white;flex-shrink:0">${c.name[0].toUpperCase()}</div>
+              <div>
+                <div style="font-weight:600;color:#e2e8f0;cursor:pointer" onclick="openCardModal('${c.id}')">${c.name}</div>
+                ${c.city ? `<div style="font-size:11px;color:#64748b">${c.city}${c.state?', '+c.state:''}</div>` : ''}
+              </div>
+            </div>
+          </td>
+          <td>
+            <div style="font-size:13px">${c.phone||'-'}</div>
+            ${c.email ? `<div style="font-size:11px;color:#64748b">${c.email}</div>` : ''}
+          </td>
+          <td>${c.serviceType||'-'}</td>
+          <td>${col ? `<span class="badge" style="background:${['rgba(99,102,241,0.2)','rgba(8,145,178,0.2)','rgba(217,119,6,0.2)','rgba(5,150,105,0.2)','rgba(220,38,38,0.2)','rgba(124,58,237,0.2)','rgba(219,39,119,0.2)','rgba(13,148,136,0.2)'][col.color%8]};color:${['#818cf8','#22d3ee','#fbbf24','#34d399','#f87171','#a78bfa','#f472b6','#2dd4bf'][col.color%8]}">${col.name}</span>` : '-'}</td>
+          <td>${c.eventDate ? formatDate(c.eventDate) : '-'}</td>
+          <td>
+            ${c.totalValue > 0 ? `
+            <div style="font-size:12px;color:#64748b">${formatCurrency(c.totalValue)}</div>
+            <div class="progress-bar" style="width:80px;margin-top:3px"><div class="progress-bar-fill" style="width:${pct}%;background:${pct>=100?'#10b981':'#6366f1'}"></div></div>
+            <div style="font-size:11px;color:${pct>=100?'#34d399':'#fbbf24'};margin-top:2px">${pct}%</div>` : '-'}
+          </td>
+          <td>
+            <div style="display:flex;gap:4px">
+              <button class="btn btn-ghost btn-icon btn-sm" onclick="openCardModal('${c.id}')" title="Editar"><i class="fas fa-pen"></i></button>
+              <button class="btn btn-ghost btn-icon btn-sm" style="color:#ef4444" onclick="quickDeleteCard('${c.id}')" title="Excluir"><i class="fas fa-trash"></i></button>
+            </div>
+          </td>
+        </tr>`;
+      }).join('')}
+    </tbody>
+  </table>`;
+}
+
+function quickDeleteCard(cardId) {
+  if(!confirm('Excluir este cliente?')) return;
+  const cards = getUserCards().filter(c => c.id !== cardId);
+  saveCards(cards);
+  showToast('Cliente excluído', 'success');
+  navigate('clientes');
+}
+
+function filterClientes() {
+  const search = (document.getElementById('cli-search')?.value||'').toLowerCase();
+  const colFilter = document.getElementById('cli-filter-col')?.value||'';
+  const sort = document.getElementById('cli-sort')?.value||'name';
+  let cards = getUserCards();
+  if(search) cards = cards.filter(c => c.name.toLowerCase().includes(search) || (c.phone||'').includes(search) || (c.email||'').toLowerCase().includes(search) || (c.serviceType||'').toLowerCase().includes(search));
+  if(colFilter) cards = cards.filter(c => c.columnId === colFilter);
+  if(sort === 'name') cards.sort((a,b) => a.name.localeCompare(b.name));
+  else if(sort === 'date') cards.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
+  else if(sort === 'value') cards.sort((a,b) => Number(b.totalValue||0) - Number(a.totalValue||0));
+  const cols = getUserColumns();
+  const grid = document.getElementById('clientes-grid');
+  if(grid) grid.innerHTML = renderClientesTable(cards, cols);
+}
+
+function stringToColor(str) {
+  let hash = 0;
+  for(let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  const colors = ['#6366f1','#8b5cf6','#ec4899','#f59e0b','#10b981','#3b82f6','#0891b2','#0d9488'];
+  return colors[Math.abs(hash) % colors.length];
+}
+
+// ============================================
+// CALENDAR PAGE
+// ============================================
+let calDate = new Date();
+let calView = 'month';
+
+function renderCalendario() {
+  const cards = getUserCards().filter(c => c.eventDate);
+  return `
+<div class="fade-in">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+    <div style="display:flex;align-items:center;gap:12px">
+      <button class="btn btn-ghost btn-icon" onclick="calPrev()"><i class="fas fa-chevron-left"></i></button>
+      <h3 id="cal-title" style="font-size:18px;font-weight:700;min-width:200px;text-align:center">${getCalTitle()}</h3>
+      <button class="btn btn-ghost btn-icon" onclick="calNext()"><i class="fas fa-chevron-right"></i></button>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn btn-secondary btn-sm" onclick="calToday()">Hoje</button>
+      <div style="display:flex;gap:4px;background:#1e293b;border-radius:8px;padding:4px">
+        <button class="btn btn-sm ${calView==='month'?'btn-primary':'btn-ghost'}" onclick="setCalView('month')">Mês</button>
+        <button class="btn btn-sm ${calView==='agenda'?'btn-primary':'btn-ghost'}" onclick="setCalView('agenda')">Agenda</button>
+      </div>
+    </div>
+  </div>
+  
+  <div id="cal-content">
+    ${calView === 'month' ? renderCalMonth(cards) : renderCalAgenda(cards)}
+  </div>
+</div>`;
+}
+
+function getCalTitle() {
+  const months = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  return months[calDate.getMonth()] + ' ' + calDate.getFullYear();
+}
+
+function renderCalMonth(cards) {
+  const year = calDate.getFullYear(), month = calDate.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month+1, 0);
+  const startDay = firstDay.getDay();
+  const days = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  const today = new Date();
+  
+  let html = `<div class="calendar-grid">
+    ${days.map(d => `<div class="calendar-header-day">${d}</div>`).join('')}`;
+  
+  // Previous month days
+  for(let i = 0; i < startDay; i++) {
+    const d = new Date(year, month, -startDay+i+1);
+    html += `<div class="calendar-day other-month"><div class="calendar-day-number">${d.getDate()}</div></div>`;
+  }
+  
+  // Current month days
+  for(let d = 1; d <= lastDay.getDate(); d++) {
+    const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const dayCards = cards.filter(c => c.eventDate && c.eventDate.startsWith(dateStr));
+    const isToday = today.getFullYear()===year && today.getMonth()===month && today.getDate()===d;
+    html += `<div class="calendar-day ${isToday?'today':''}" onclick="calDayClick('${dateStr}')">
+      <div class="calendar-day-number">${d}</div>
+      ${dayCards.slice(0,3).map(c => `<div class="calendar-event" onclick="event.stopPropagation();openCardModal('${c.id}')">${c.name}</div>`).join('')}
+      ${dayCards.length > 3 ? `<div style="font-size:10px;color:#64748b">+${dayCards.length-3} mais</div>` : ''}
+    </div>`;
+  }
+  
+  // Fill remaining
+  const remaining = 42 - startDay - lastDay.getDate();
+  for(let d = 1; d <= remaining; d++) {
+    html += `<div class="calendar-day other-month"><div class="calendar-day-number">${d}</div></div>`;
+  }
+  
+  html += '</div>';
+  return html;
+}
+
+function renderCalAgenda(cards) {
+  const sorted = [...cards].sort((a,b) => new Date(a.eventDate) - new Date(b.eventDate));
+  const upcoming = sorted.filter(c => new Date(c.eventDate) >= new Date());
+  const past = sorted.filter(c => new Date(c.eventDate) < new Date()).reverse().slice(0,10);
+  
+  return `
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+    <div>
+      <h4 style="font-size:14px;font-weight:600;margin-bottom:12px;color:#f1f5f9"><i class="fas fa-arrow-right" style="color:#6366f1;margin-right:8px"></i>Próximos Eventos (${upcoming.length})</h4>
+      ${upcoming.length === 0 ? '<p style="color:#475569;font-size:13px">Nenhum evento futuro</p>' :
+        upcoming.map(c => renderAgendaItem(c)).join('')}
+    </div>
+    <div>
+      <h4 style="font-size:14px;font-weight:600;margin-bottom:12px;color:#f1f5f9"><i class="fas fa-history" style="color:#64748b;margin-right:8px"></i>Eventos Passados</h4>
+      ${past.length === 0 ? '<p style="color:#475569;font-size:13px">Nenhum evento passado</p>' :
+        past.map(c => renderAgendaItem(c, true)).join('')}
+    </div>
+  </div>`;
+}
+
+function renderAgendaItem(c, past = false) {
+  return `
+  <div style="display:flex;gap:12px;padding:12px;background:${past?'#0f172a':'#1e293b'};border-radius:10px;margin-bottom:8px;cursor:pointer;opacity:${past?0.6:1}" onclick="openCardModal('${c.id}')">
+    <div style="width:48px;height:48px;background:linear-gradient(135deg,${past?'#475569,#334155':'#6366f1,#8b5cf6'});border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0">
+      <div style="font-size:16px;font-weight:800;color:white">${new Date(c.eventDate).getDate()}</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.7)">${['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][new Date(c.eventDate).getMonth()]}</div>
+    </div>
+    <div style="flex:1;min-width:0">
+      <div style="font-weight:600;color:#e2e8f0;margin-bottom:2px">${c.name}</div>
+      <div style="font-size:12px;color:#64748b">${c.serviceType||'Serviço'} ${c.eventTime ? '• '+c.eventTime : ''}</div>
+      ${c.venue ? `<div style="font-size:12px;color:#64748b"><i class="fas fa-map-marker-alt" style="margin-right:4px"></i>${c.venue}</div>` : ''}
+    </div>
+    ${c.totalValue > 0 ? `<div style="text-align:right;flex-shrink:0"><div style="font-size:12px;font-weight:600;color:#34d399">${formatCurrency(c.totalValue)}</div></div>` : ''}
+  </div>`;
+}
+
+function calPrev() {
+  calDate = new Date(calDate.getFullYear(), calDate.getMonth()-1, 1);
+  navigate('calendario');
+}
+function calNext() {
+  calDate = new Date(calDate.getFullYear(), calDate.getMonth()+1, 1);
+  navigate('calendario');
+}
+function calToday() { calDate = new Date(); navigate('calendario'); }
+function setCalView(v) { calView = v; navigate('calendario'); }
+function calDayClick(dateStr) {
+  const cards = getUserCards().filter(c => c.eventDate && c.eventDate.startsWith(dateStr));
+  if(cards.length === 1) { openCardModal(cards[0].id); return; }
+  if(cards.length > 1) {
+    showModal(`
+<div class="modal modal-sm drop-in" onclick="event.stopPropagation()">
+  <div class="modal-header">
+    <h3>Eventos em ${formatDate(dateStr+'T12:00:00')}</h3>
+    <button class="btn btn-ghost btn-icon" onclick="closeModal()"><i class="fas fa-times"></i></button>
+  </div>
+  <div class="modal-body">
+    ${cards.map(c => `<div style="padding:10px;background:#1e293b;border-radius:8px;margin-bottom:6px;cursor:pointer" onclick="closeModal();openCardModal('${c.id}')">
+      <div style="font-weight:600;color:#e2e8f0">${c.name}</div>
+      <div style="font-size:12px;color:#64748b">${c.serviceType||''} ${c.eventTime?'• '+c.eventTime:''}</div>
+    </div>`).join('')}
+  </div>
+</div>`);
+  }
+}
+
+// ============================================
+// NOTIFICATIONS PAGE
+// ============================================
+function renderNotificacoes() {
+  const notifs = (DB.get('notifications') || []).filter(n => n.userId === state.currentUser.id);
+  const unread = notifs.filter(n => !n.read).length;
+  return `
+<div class="fade-in">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+    <div>
+      <h2 style="font-size:20px;font-weight:700;color:#f1f5f9">Notificações</h2>
+      <p style="font-size:13px;color:#64748b;margin-top:2px">${unread} não lida(s)</p>
+    </div>
+    <div style="display:flex;gap:8px">
+      ${unread > 0 ? `<button class="btn btn-secondary btn-sm" onclick="markAllRead()"><i class="fas fa-check-double"></i> Marcar todas lidas</button>` : ''}
+      <button class="btn btn-danger btn-sm" onclick="clearAllNotifs()"><i class="fas fa-trash"></i> Limpar tudo</button>
+    </div>
+  </div>
+  
+  <div class="card-elevated">
+    ${notifs.length === 0 ? `
+    <div style="text-align:center;padding:40px;color:#475569">
+      <i class="fas fa-bell-slash" style="font-size:48px;margin-bottom:16px;opacity:0.3"></i>
+      <p>Nenhuma notificação</p>
+    </div>` : notifs.map(n => `
+    <div style="display:flex;gap:12px;padding:14px;background:${n.read?'transparent':'rgba(99,102,241,0.05)'};border-radius:10px;margin-bottom:4px;border-left:3px solid ${n.read?'transparent':'#6366f1'}">
+      <div style="width:36px;height:36px;border-radius:10px;background:${n.type==='success'?'rgba(5,150,105,0.2)':n.type==='error'?'rgba(220,38,38,0.2)':'rgba(99,102,241,0.2)'};display:flex;align-items:center;justify-content:center;flex-shrink:0">
+        <i class="fas ${n.type==='success'?'fa-check':'fa-info'}" style="color:${n.type==='success'?'#34d399':'#818cf8'};font-size:14px"></i>
+      </div>
+      <div style="flex:1">
+        <div style="font-size:13px;color:${n.read?'#64748b':'#e2e8f0'}">${n.message}</div>
+        <div style="font-size:11px;color:#475569;margin-top:4px">${timeAgo(n.createdAt)}</div>
+      </div>
+      <button class="btn btn-ghost btn-icon btn-sm" onclick="deleteNotif('${n.id}')" style="color:#64748b"><i class="fas fa-times" style="font-size:11px"></i></button>
+    </div>`).join('')}
+  </div>
+</div>`;
+}
+
+function timeAgo(dateStr) {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  if(diff < 60000) return 'Agora mesmo';
+  if(diff < 3600000) return Math.floor(diff/60000) + ' min atrás';
+  if(diff < 86400000) return Math.floor(diff/3600000) + 'h atrás';
+  return Math.floor(diff/86400000) + 'd atrás';
+}
+
+function markAllRead() {
+  const notifs = DB.get('notifications') || [];
+  notifs.filter(n => n.userId === state.currentUser.id).forEach(n => n.read = true);
+  DB.set('notifications', notifs);
+  navigate('notificacoes');
+}
+function clearAllNotifs() {
+  const notifs = (DB.get('notifications') || []).filter(n => n.userId !== state.currentUser.id);
+  DB.set('notifications', notifs);
+  navigate('notificacoes');
+}
+function deleteNotif(id) {
+  const notifs = (DB.get('notifications') || []).filter(n => n.id !== id);
+  DB.set('notifications', notifs);
+  navigate('notificacoes');
+}
+
+// ============================================
+// SETTINGS PAGE
+// ============================================
+function renderConfiguracoes() {
+  const settings = DB.get('settings') || {};
+  const serviceTypes = DB.get('service_types') || [];
+  const nichos = DB.get('nichos') || [];
+  const guestLabel = DB.get('guest_label') || 'Quantidade de Convidados';
+  const serviceLabel = DB.get('service_label') || 'Tipo de Serviço';
+  const users = DB.get('users') || [];
+  
+  return `
+<div class="fade-in">
+  <h2 style="font-size:20px;font-weight:700;color:#f1f5f9;margin-bottom:20px">Configurações</h2>
+  
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+    <!-- Business Settings -->
+    <div class="card-elevated">
+      <h3 style="font-size:15px;font-weight:700;margin-bottom:16px;color:#f1f5f9"><i class="fas fa-building" style="color:#6366f1;margin-right:8px"></i>Dados do Negócio</h3>
+      <div class="form-group" style="margin-bottom:12px">
+        <label class="form-label">Nome da Empresa</label>
+        <input id="set-biz-name" class="form-input" value="${settings.businessName||''}" placeholder="Nome da empresa" />
+      </div>
+      <div class="form-group" style="margin-bottom:12px">
+        <label class="form-label">Telefone</label>
+        <input id="set-phone" class="form-input" value="${settings.phone||''}" placeholder="(11) 99999-9999" />
+      </div>
+      <div class="form-group" style="margin-bottom:12px">
+        <label class="form-label">E-mail</label>
+        <input id="set-email" class="form-input" type="email" value="${settings.email||''}" placeholder="empresa@email.com" />
+      </div>
+      <div class="form-group" style="margin-bottom:12px">
+        <label class="form-label">Endereço</label>
+        <input id="set-address" class="form-input" value="${settings.address||''}" placeholder="Endereço completo" />
+      </div>
+      <div class="form-group" style="margin-bottom:16px">
+        <label class="form-label">Nicho Principal</label>
+        <select id="set-nicho" class="form-select">
+          ${nichos.map(n => `<option value="${n}" ${settings.nicho===n?'selected':''}>${capitalize(n)}</option>`).join('')}
+          <option value="outro" ${!nichos.includes(settings.nicho)?'selected':''}>Outro</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin-bottom:16px">
+        <label class="form-label">% Marketing sobre contratos</label>
+        <input id="set-marketing" class="form-input" type="number" min="0" max="100" value="${settings.marketingPercent||10}" />
+      </div>
+      <div class="form-group" style="margin-bottom:16px">
+        <label class="form-label">Rodapé de Orçamento</label>
+        <textarea id="set-proposal" class="form-textarea" style="min-height:60px">${settings.proposalFooter||''}</textarea>
+      </div>
+      <button class="btn btn-primary" onclick="saveSettings()"><i class="fas fa-save"></i> Salvar</button>
+    </div>
+    
+    <!-- Service Settings -->
+    <div class="card-elevated">
+      <h3 style="font-size:15px;font-weight:700;margin-bottom:16px;color:#f1f5f9"><i class="fas fa-sliders-h" style="color:#8b5cf6;margin-right:8px"></i>Configurações de Serviço</h3>
+      
+      <div class="form-group" style="margin-bottom:12px">
+        <label class="form-label">Label "Tipo de Serviço"</label>
+        <input id="set-service-label" class="form-input" value="${serviceLabel}" placeholder="Ex: Tipo de Serviço" />
+      </div>
+      <div class="form-group" style="margin-bottom:12px">
+        <label class="form-label">Label "Quantidade de Convidados"</label>
+        <input id="set-guest-label" class="form-input" value="${guestLabel}" placeholder="Ex: Número de Participantes" />
+      </div>
+      <button class="btn btn-secondary btn-sm" style="margin-bottom:16px" onclick="saveLabels()"><i class="fas fa-save"></i> Salvar Labels</button>
+      
+      <hr class="divider" />
+      
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <label class="form-label" style="margin:0">Tipos de Serviço</label>
+        <button class="btn btn-primary btn-sm" onclick="addServiceType()"><i class="fas fa-plus"></i> Adicionar</button>
+      </div>
+      <div id="service-types-list">
+        ${serviceTypes.map((t,i) => `
+        <div style="display:flex;gap:8px;margin-bottom:6px">
+          <input class="form-input" value="${t}" id="st-${i}" style="flex:1" />
+          <button class="btn btn-danger btn-sm btn-icon" onclick="removeServiceType(${i})"><i class="fas fa-times"></i></button>
+        </div>`).join('')}
+      </div>
+      <button class="btn btn-success btn-sm" style="margin-top:8px" onclick="saveServiceTypes()"><i class="fas fa-save"></i> Salvar Tipos</button>
+    </div>
+    
+    <!-- Users Management -->
+    <div class="card-elevated">
+      <h3 style="font-size:15px;font-weight:700;margin-bottom:16px;color:#f1f5f9"><i class="fas fa-users" style="color:#0891b2;margin-right:8px"></i>Usuários (${users.length})</h3>
+      ${users.map(u => `
+      <div style="display:flex;align-items:center;gap:10px;padding:10px;background:#1e293b;border-radius:8px;margin-bottom:8px">
+        <div class="avatar avatar-sm" style="background:${u.color};color:white;flex-shrink:0">${u.avatar}</div>
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:600;color:#e2e8f0">${u.name}</div>
+          <div style="font-size:11px;color:#64748b">${u.email} • ${capitalize(u.nicho||'')}</div>
+        </div>
+        <span class="badge ${u.role==='admin'?'badge-primary':'badge-gray'}">${u.role==='admin'?'Admin':'Usuário'}</span>
+        ${u.id !== state.currentUser.id ? `<button class="btn btn-ghost btn-icon btn-sm" style="color:#ef4444" onclick="deleteUser('${u.id}')"><i class="fas fa-trash"></i></button>` : ''}
+      </div>`).join('')}
+    </div>
+    
+    <!-- Nichos Management -->
+    <div class="card-elevated">
+      <h3 style="font-size:15px;font-weight:700;margin-bottom:16px;color:#f1f5f9"><i class="fas fa-tags" style="color:#d97706;margin-right:8px"></i>Nichos Disponíveis</h3>
+      <div id="nichos-list">
+        ${nichos.map((n,i) => `
+        <div style="display:flex;gap:8px;margin-bottom:6px">
+          <input class="form-input" value="${n}" id="nicho-${i}" style="flex:1" />
+          <button class="btn btn-danger btn-sm btn-icon" onclick="removeNicho(${i})"><i class="fas fa-times"></i></button>
+        </div>`).join('')}
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn btn-secondary btn-sm" onclick="addNicho()"><i class="fas fa-plus"></i> Novo Nicho</button>
+        <button class="btn btn-success btn-sm" onclick="saveNichos()"><i class="fas fa-save"></i> Salvar</button>
+      </div>
+    </div>
+  </div>
+</div>`;
+}
+
+function saveSettings() {
+  DB.set('settings', {
+    businessName: document.getElementById('set-biz-name')?.value||'',
+    phone: document.getElementById('set-phone')?.value||'',
+    email: document.getElementById('set-email')?.value||'',
+    address: document.getElementById('set-address')?.value||'',
+    marketingPercent: Number(document.getElementById('set-marketing')?.value||10),
+    proposalFooter: document.getElementById('set-proposal')?.value||'',
+    nicho: document.getElementById('set-nicho')?.value||'fotografia'
+  });
+  showToast('Configurações salvas!', 'success');
+}
+
+function saveLabels() {
+  DB.set('service_label', document.getElementById('set-service-label')?.value || 'Tipo de Serviço');
+  DB.set('guest_label', document.getElementById('set-guest-label')?.value || 'Quantidade de Convidados');
+  showToast('Labels atualizados!', 'success');
+}
+
+function addServiceType() {
+  const types = DB.get('service_types') || [];
+  types.push('Novo Serviço');
+  DB.set('service_types', types);
+  navigate('configuracoes');
+}
+
+function removeServiceType(i) {
+  const types = DB.get('service_types') || [];
+  types.splice(i, 1);
+  DB.set('service_types', types);
+  navigate('configuracoes');
+}
+
+function saveServiceTypes() {
+  const types = [];
+  document.querySelectorAll('[id^="st-"]').forEach(el => { if(el.value.trim()) types.push(el.value.trim()); });
+  DB.set('service_types', types);
+  showToast('Tipos de serviço salvos!', 'success');
+}
+
+function addNicho() {
+  const nichos = DB.get('nichos') || [];
+  nichos.push('Novo Nicho');
+  DB.set('nichos', nichos);
+  navigate('configuracoes');
+}
+
+function removeNicho(i) {
+  const nichos = DB.get('nichos') || [];
+  nichos.splice(i, 1);
+  DB.set('nichos', nichos);
+  navigate('configuracoes');
+}
+
+function saveNichos() {
+  const nichos = [];
+  document.querySelectorAll('[id^="nicho-"]').forEach(el => { if(el.value.trim()) nichos.push(el.value.trim()); });
+  DB.set('nichos', nichos);
+  showToast('Nichos salvos!', 'success');
+}
+
+function deleteUser(userId) {
+  if(!confirm('Excluir este usuário?')) return;
+  const users = (DB.get('users') || []).filter(u => u.id !== userId);
+  DB.set('users', users);
+  showToast('Usuário excluído', 'success');
+  navigate('configuracoes');
+}
+
+// ============================================
+// MODAL UTILITY
+// ============================================
+function showModal(html, isExtra = false) {
+  const id = isExtra ? 'modal-extra-overlay' : 'modal-overlay';
+  let overlay = document.getElementById(id);
+  if(!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = id;
+    overlay.className = 'modal-overlay';
+    overlay.onclick = (e) => { if(e.target === overlay) { if(isExtra) overlay.remove(); else closeModal(); } };
+    document.body.appendChild(overlay);
+  }
+  overlay.innerHTML = html;
+  overlay.style.display = 'flex';
+  // Focus first input
+  setTimeout(() => {
+    const firstInput = overlay.querySelector('input:not([type=hidden]):not([readonly])');
+    if(firstInput) firstInput.focus();
+  }, 100);
+}
+
+function closeModal() {
+  const overlay = document.getElementById('modal-overlay');
+  if(overlay) { overlay.style.display = 'none'; overlay.innerHTML = ''; }
+  const extra = document.getElementById('modal-extra-overlay');
+  if(extra) extra.remove();
+}
+
+// Close modal on Escape
+document.addEventListener('keydown', (e) => {
+  if(e.key === 'Escape') closeModal();
+});
+
+// ============================================
+// MAIN RENDER
+// ============================================
+function render() {
+  const app = document.getElementById('app');
+  if(!app) return;
+  const auth = getAuth();
+  if(!auth) {
+    app.innerHTML = renderLogin();
+  } else {
+    state.currentUser = auth;
+    app.innerHTML = renderApp();
+  }
+}
+
+// Initialize
+initDefaultData();
+render();
+
